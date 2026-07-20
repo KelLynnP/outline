@@ -1,8 +1,10 @@
 import { useMemo } from "react";
+import { dayDropProps } from "../dnd.js";
 
 interface Props {
   selectedISO: string;
   onSelect: (iso: string) => void;
+  onDropTask?: (itemId: number, date: string) => void;
   // range: how many days around today to show. defaults to the current month.
   range?: number;
 }
@@ -12,7 +14,7 @@ const DAY_MS = 86_400_000;
 
 // horizontal row of small dots, one per day, for jumping between days.
 // selected = filled with accent color, today = ring, others = quiet dot.
-export function DayDots({ selectedISO, onSelect, range }: Props) {
+export function DayDots({ selectedISO, onSelect, onDropTask, range }: Props) {
   const days = useMemo(() => {
     if (range) {
       const start = new Date(Date.now() - Math.floor(range / 2) * DAY_MS);
@@ -47,6 +49,7 @@ export function DayDots({ selectedISO, onSelect, range }: Props) {
               onClick={() => onSelect(d)}
               title={dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
               data-date={d}
+              {...(onDropTask ? dayDropProps(d, onDropTask) : {})}
             >
               <span className="dn">{dt.getDate()}</span>
             </button>

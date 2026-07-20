@@ -474,8 +474,27 @@ a:hover { color: var(--train); border-bottom-color: var(--train); }
   --accent: #2b6cb0;
   --accent-urgent: #c53030;
 }
-.tlv2 { position: relative; margin: 8px 0 24px; }
+.tlv2 { position: relative; margin: 0; }
 .tlv2 svg { width: 100%; display: block; overflow: visible; }
+.tlv2-canvas { position: relative; width: 100%; }
+.tlv2-slots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: block;
+}
+.tlv2-slot {
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  cursor: pointer;
+  transition: background 100ms;
+  border-radius: 4px;
+}
+.tlv2-slot:hover { background: rgba(43, 108, 176, 0.05); }
+.tlv2-slot.drop-over-day { background: rgba(43, 108, 176, 0.15); outline: none; }
 .tlv2-popover {
   position: absolute;
   inset: 0;
@@ -966,42 +985,29 @@ a:hover { color: var(--train); border-bottom-color: var(--train); }
   .opt2-side { position: static; }
 }
 
-/* ---------- Opt 3: overview + workboard ---------- */
-.app-opt3 { max-width: 1280px; }
-.opt3 { display: flex; flex-direction: column; gap: 24px; }
-
-.opt3-timeline {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px 20px 16px;
-}
-.opt3-timeline-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 4px;
-}
-.tag-title {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
+/* ---------- Opt 3: workboard (timeline + tasks + calendar + notes) ---------- */
+.app-opt3 { max-width: 1360px; padding: 72px 56px 120px; }
+.opt3 { display: flex; flex-direction: column; gap: 40px; }
 
 .workboard {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
 }
+
+.workboard-timeline {
+  padding: 40px 48px 24px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
 .workboard-head {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 20px;
-  padding: 14px 20px;
+  gap: 28px;
+  padding: 28px 48px;
   border-bottom: 1px solid var(--line-soft);
 }
 .workboard-title {
@@ -1062,19 +1068,19 @@ a:hover { color: var(--train); border-bottom-color: var(--train); }
 .workboard-body {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
-  gap: 24px;
-  padding: 20px;
+  gap: 56px;
+  padding: 40px 48px;
 }
 .wb-tasks, .wb-cal { min-width: 0; }
 .wb-section-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 10px;
+  margin-bottom: 20px;
   font-family: var(--display);
   font-weight: 700;
   font-size: 11px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 .wb-section-head .quiet {
@@ -1084,8 +1090,87 @@ a:hover { color: var(--train); border-bottom-color: var(--train); }
   font-size: 11px;
 }
 
+.workboard-notes {
+  padding: 24px 48px 48px;
+  border-top: 1px solid var(--line-soft);
+  background: #fbf9f4;
+  border-radius: 0 0 14px 14px;
+}
+
+/* whitespace on task table + composer */
+.workboard .composer { padding: 4px 0 16px; }
+.workboard .task-table th { padding: 10px 12px; }
+.workboard .task-table td { padding: 14px 12px; }
+.workboard .task-table td.drag-handle {
+  width: 20px;
+  color: var(--ink-quiet);
+  cursor: grab;
+  user-select: none;
+  padding-right: 4px;
+  padding-left: 4px;
+  letter-spacing: -1px;
+  font-family: var(--mono);
+}
+.workboard .task-table tr[draggable="true"]:hover td.drag-handle { color: var(--ink); }
+.workboard .task-table tr[draggable="true"]:active { opacity: 0.55; }
+
+.drag-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-quiet);
+  padding: 4px 0 12px;
+}
+
+/* drop-target highlight */
+.drop-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: rgba(43, 108, 176, 0.06) !important;
+}
+.drop-over-day { outline: 2px solid var(--accent); }
+
+/* ---------- DayNotes ---------- */
+.daynotes { display: flex; flex-direction: column; gap: 12px; }
+.daynotes-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.daynotes-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.daynotes-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-quiet);
+  transition: opacity 200ms;
+}
+.daynotes-status.saved { color: #2b7a4b; }
+.daynotes-input {
+  width: 100%;
+  min-height: 160px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--card);
+  font: inherit;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.65;
+  padding: 20px 24px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 120ms;
+}
+.daynotes-input:focus { border-color: var(--ink-quiet); }
+.daynotes-input::placeholder { color: var(--ink-quiet); }
+
 /* ---------- DayDots ---------- */
-.daydots { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.daydots { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
 .daydots-label {
   font-family: var(--display);
   font-size: 10px;
@@ -1097,12 +1182,12 @@ a:hover { color: var(--train); border-bottom-color: var(--train); }
 }
 .daydots-row {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .daydot {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: transparent;
@@ -1204,6 +1289,11 @@ a:hover { color: var(--train); border-bottom-color: var(--train); }
   flex-direction: column;
   gap: 1px;
 }
+.weekcal-event.synced {
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--accent);
+}
 .weekcal-event.allday {
   position: relative;
   left: 0;
@@ -1288,6 +1378,11 @@ a:hover { color: var(--train); border-bottom-color: var(--train); }
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.monthcal-cell .pill.synced {
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--accent);
 }
 .monthcal-cell .more {
   font-family: var(--mono);

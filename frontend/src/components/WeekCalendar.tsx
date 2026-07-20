@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CalendarEvent } from "@life-console/shared";
 import { api } from "../api.js";
+import { dayDropProps } from "../dnd.js";
 
 interface Props {
   weekStartISO: string; // Monday
   onSelectDay: (iso: string) => void;
+  onDropTask?: (itemId: number, date: string) => void;
   hourStart?: number;
   hourEnd?: number;
 }
@@ -22,6 +24,7 @@ function parseTime(t: string | null): number | null {
 export function WeekCalendar({
   weekStartISO,
   onSelectDay,
+  onDropTask,
   hourStart = 7,
   hourEnd = 22,
 }: Props) {
@@ -81,7 +84,12 @@ export function WeekCalendar({
         </div>
 
         {days.map((d) => (
-          <div key={d} className="weekcal-col" data-date={d}>
+          <div
+            key={d}
+            className="weekcal-col"
+            data-date={d}
+            {...(onDropTask ? dayDropProps(d, onDropTask) : {})}
+          >
             {Array.from({ length: totalHours + 1 }).map((_, i) => (
               <div
                 key={i}
@@ -98,16 +106,20 @@ export function WeekCalendar({
                 const top = allDay ? 0 : Math.max(0, (s - hourStart) * hourPx);
                 const bottom =
                   en != null ? (en - hourStart) * hourPx : top + hourPx * 0.9;
+                const synced = e.source !== "manual";
                 return (
                   <div
                     key={e.id}
-                    className={`weekcal-event ${allDay ? "allday" : ""}`}
+                    className={`weekcal-event ${allDay ? "allday" : ""} ${synced ? "synced" : ""}`}
                     style={
                       allDay
                         ? undefined
                         : { top, height: Math.max(14, bottom - top) }
                     }
                     title={e.title}
+                    onDoubleClick={() => {
+                      if (synced && e.deeplink) window.open(e.deeplink, "_blank");
+                    }}
                   >
                     <span className="t">{e.title}</span>
                     {!allDay && e.start_time && (

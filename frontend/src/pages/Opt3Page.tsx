@@ -6,7 +6,9 @@ import { DailyCalendar } from "../components/DailyCalendar.js";
 import { WeekCalendar } from "../components/WeekCalendar.js";
 import { MonthCalendar } from "../components/MonthCalendar.js";
 import { DayDots } from "../components/DayDots.js";
+import { DayNotes } from "../components/DayNotes.js";
 import { TaskComposer } from "../components/Tasks.js";
+import { taskDragProps } from "../dnd.js";
 
 type ViewMode = "day" | "week" | "month";
 
@@ -48,6 +50,14 @@ export function Opt3Page() {
     load().catch(console.error);
   }, [load]);
 
+  const scheduleTaskOnDay = useCallback(
+    async (itemId: number, date: string) => {
+      await api.updateItem(itemId, { due_date: date });
+      load();
+    },
+    [load],
+  );
+
   const filtered = useMemo(() => {
     if (!today) return [] as CaughtItem[];
     const open = items.filter((i) => i.status !== "closed");
@@ -88,25 +98,39 @@ export function Opt3Page() {
 
   return (
     <div className="opt3">
-      {/* ---------------- overview timeline ---------------- */}
-      <div className="opt3-timeline">
-        <div className="opt3-timeline-head">
-          <span className="tag-title">overview</span>
-          <span className="quiet">
-            {line.stops.length} recent · {line.dots.length} earlier
-          </span>
-        </div>
-        <TimelineV2 line={line} simple compact />
-      </div>
-
-      {/* ---------------- workboard: tasks + calendar ---------------- */}
       <div className="workboard">
+        {/* ---------------- timeline row ---------------- */}
+        <div className="workboard-timeline">
+          <TimelineV2
+            line={line}
+            simple
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            onDropTask={scheduleTaskOnDay}
+          />
+        </div>
+
+        {/* ---------------- header ---------------- */}
         <div className="workboard-head">
           <div className="workboard-title">workboard</div>
           <div className="workboard-nav">
-            <button onClick={() => shiftSelected(view === "month" ? -30 : view === "week" ? -7 : -1)}>‹</button>
-            <button className="today-btn" onClick={jumpToday}>today</button>
-            <button onClick={() => shiftSelected(view === "month" ? 30 : view === "week" ? 7 : 1)}>›</button>
+            <button
+              onClick={() =>
+                shiftSelected(view === "month" ? -30 : view === "week" ? -7 : -1)
+              }
+            >
+              ‹
+            </button>
+            <button className="today-btn" onClick={jumpToday}>
+              today
+            </button>
+            <button
+              onClick={() =>
+                shiftSelected(view === "month" ? 30 : view === "week" ? 7 : 1)
+              }
+            >
+              ›
+            </button>
             <span className="workboard-date">{selectedLabel}</span>
           </div>
           <div className="view-toggle">
@@ -122,8 +146,8 @@ export function Opt3Page() {
           </div>
         </div>
 
+        {/* ---------------- tasks + calendar ---------------- */}
         <div className="workboard-body">
-          {/* ------ tasks column ------ */}
           <div className="wb-tasks">
             <div className="wb-section-head">
               <span>tasks</span>
@@ -140,9 +164,11 @@ export function Opt3Page() {
               </div>
             </div>
             <TaskComposer settings={settings} onCreated={load} compact />
+            <div className="drag-hint">drag a row onto any day to schedule it.</div>
             <table className="task-table">
               <thead>
                 <tr>
+                  <th></th>
                   <th>PRIO</th>
                   <th>DUE</th>
                   <th>TASK</th>
@@ -156,7 +182,7 @@ export function Opt3Page() {
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="quiet">
+                    <td colSpan={6} className="quiet">
                       nothing matches.
                     </td>
                   </tr>
@@ -165,17 +191,22 @@ export function Opt3Page() {
             </table>
           </div>
 
-          {/* ------ calendar column ------ */}
           <div className="wb-cal">
             <div className="wb-section-head">
-              <span>{view === "day" ? "schedule" : view === "week" ? "week" : "month"}</span>
+              <span>
+                {view === "day" ? "schedule" : view === "week" ? "week" : "month"}
+              </span>
               <span className="quiet">
                 {view === "day" && today.date === selectedDate ? "today" : ""}
               </span>
             </div>
 
             {view === "day" && (
-              <DailyCalendar date={selectedDate} variant="widget" />
+              <DailyCalendar
+                date={selectedDate}
+                variant="widget"
+                onDropTask={scheduleTaskOnDay}
+              />
             )}
             {view === "week" && (
               <WeekCalendar
@@ -184,6 +215,7 @@ export function Opt3Page() {
                   setSelectedDate(d);
                   setView("day");
                 }}
+                onDropTask={scheduleTaskOnDay}
               />
             )}
             {view === "month" && (
@@ -193,21 +225,42 @@ export function Opt3Page() {
                   setSelectedDate(d);
                   setView("day");
                 }}
+                onDropTask={scheduleTaskOnDay}
               />
             )}
 
-            <DayDots selectedISO={selectedDate} onSelect={setSelectedDate} />
+            <DayDots
+              selectedISO={selectedDate}
+              onSelect={setSelectedDate}
+              onDropTask={scheduleTaskOnDay}
+            />
           </div>
+        </div>
+
+        {/* ---------------- notes for the day ---------------- */}
+        <div className="workboard-notes">
+          <DayNotes date={selectedDate} />
         </div>
       </div>
     </div>
   );
 }
 
-function TaskRow({ item, onChange }: { item: CaughtItem; onChange: () => void }) {
+function TaskRow({
+  item,
+  onChange,
+}: {
+  item: CaughtItem;
+  onChange: () => void;
+}) {
   const overdue = item.due_date && new Date(item.due_date) < new Date();
   return (
-    <tr className={overdue ? "overdue" : ""} data-item-id={item.id}>
+    <tr
+      className={overdue ? "overdue" : ""}
+      data-item-id={item.id}
+      {...taskDragProps(item.id)}
+    >
+      <td className="drag-handle" title="drag onto a day to schedule">⋮⋮</td>
       <td>
         <span className={`prio-chip prio-${item.priority}`}>P{item.priority}</span>
       </td>
@@ -236,11 +289,21 @@ function TaskRow({ item, onChange }: { item: CaughtItem; onChange: () => void })
         )}
       </td>
       <td className="task-actions">
-        <button onClick={async () => { await api.closeItem(item.id); onChange(); }}>
+        <button
+          onClick={async () => {
+            await api.closeItem(item.id);
+            onChange();
+          }}
+        >
           close
         </button>
         {item.status !== "carried" && (
-          <button onClick={async () => { await api.carryItem(item.id); onChange(); }}>
+          <button
+            onClick={async () => {
+              await api.carryItem(item.id);
+              onChange();
+            }}
+          >
             carry
           </button>
         )}

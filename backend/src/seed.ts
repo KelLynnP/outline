@@ -46,6 +46,7 @@ for (let i = 1; i <= 60; i++) {
     summary,
     journal_deeplink: `heptabase://journal/${date}`,
     enrichment: null,
+    notes: null,
   });
 }
 

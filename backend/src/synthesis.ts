@@ -22,6 +22,7 @@ export async function runNightlyStopSummaries() {
       summary: d.excerpt,
       journal_deeplink: d.deeplink,
       enrichment: null,
+      notes: null,
     });
   }
 }
@@ -38,11 +39,15 @@ export async function runWeeklyDirection() {
 // Replaces the whole "calendar" source window each run so edits/deletions
 // upstream propagate; manual events are never touched.
 export async function runCalendarSync(days = 14): Promise<number> {
-  if (!calendar.enabled() || !calendar.fetchUpcomingEvents) return 0;
+  if (!calendar.enabled() || !calendar.fetchEventsRange) return 0;
+  // Full days from local midnight so today's earlier events survive re-syncs.
   const from = todayISO();
   const to = new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10);
-  const events = await calendar.fetchUpcomingEvents(days);
-  return replaceSourceEvents("calendar", from, to, events);
+  const events = await calendar.fetchEventsRange(from, to);
+  // Google returns multi-day events that *started* before the window; keep
+  // only rows dated inside it, since rows outside never get replaced.
+  const inWindow = events.filter((e) => e.date >= from && e.date <= to);
+  return replaceSourceEvents("calendar", from, to, inWindow);
 }
 
 export function scheduleJobs() {

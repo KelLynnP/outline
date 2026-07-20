@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CalendarEvent } from "@life-console/shared";
+import { dayDropProps } from "../dnd.js";
 
 interface Props {
   monthISO: string; // any date in the month
   onSelectDay: (iso: string) => void;
+  onDropTask?: (itemId: number, date: string) => void;
 }
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-export function MonthCalendar({ monthISO, onSelectDay }: Props) {
+export function MonthCalendar({ monthISO, onSelectDay, onDropTask }: Props) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const anchor = new Date(monthISO + "T00:00:00");
   const y = anchor.getFullYear();
@@ -68,11 +70,16 @@ export function MonthCalendar({ monthISO, onSelectDay }: Props) {
               className={`monthcal-cell ${inMonth ? "" : "muted"} ${isToday ? "today" : ""}`}
               data-date={d}
               onClick={() => onSelectDay(d)}
+              {...(onDropTask ? dayDropProps(d, onDropTask) : {})}
             >
               <div className="dn">{dt.getDate()}</div>
               <div className="ev">
                 {dayEvents.slice(0, 3).map((e) => (
-                  <div key={e.id} className="pill" title={e.title}>
+                  <div
+                    key={e.id}
+                    className={`pill ${e.source !== "manual" ? "synced" : ""}`}
+                    title={e.title}
+                  >
                     {e.title}
                   </div>
                 ))}

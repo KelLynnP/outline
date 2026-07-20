@@ -35,9 +35,9 @@ method; don't replace the file.
 - Gotcha: npm workspace scripts run with cwd `backend/`, so `.env` at the
   repo root is loaded via `backend/src/env.ts` (path-resolved), not
   `dotenv/config`. One-off tsx scripts must `import "./src/env.ts"` first.
-- Gotcha: `REPO_ROOT` in `backend/src/paths.ts` resolves one level ABOVE the
-  repo — `settings.json` and `data/console.db` actually live in the parent
-  folder of the repo checkout. Fixing it means migrating those files.
+- Fixed 2026-07-19: `REPO_ROOT` in `backend/src/paths.ts` used to resolve one
+  level ABOVE the repo; `settings.json` and `data/console.db` were migrated
+  back into the repo root when it was corrected.
 
 Do not repurpose the shared `CalendarEvent` in `shared/src/types.ts` for the
 adapter — the adapter type is intentionally id/source-free; the sync layer

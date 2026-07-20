@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import type { CalendarEvent } from "@life-console/shared";
 import { api } from "../api.js";
+import { dayDropProps } from "../dnd.js";
 
 interface Props {
   date: string;
   hourStart?: number;
   hourEnd?: number;
   variant?: "widget" | "column";
+  onDropTask?: (itemId: number, date: string) => void;
 }
 
 function nowHour() {
@@ -26,6 +28,7 @@ export function DailyCalendar({
   hourStart = 7,
   hourEnd = 22,
   variant = "widget",
+  onDropTask,
 }: Props) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [drafting, setDrafting] = useState(false);
@@ -56,7 +59,10 @@ export function DailyCalendar({
   };
 
   return (
-    <div className={`daycal daycal-${variant}`}>
+    <div
+      className={`daycal daycal-${variant}`}
+      {...(onDropTask ? dayDropProps(date, onDropTask) : {})}
+    >
       <div className="daycal-track" style={{ height: trackHeight }}>
         {Array.from({ length: totalHours + 1 }).map((_, i) => (
           <div
