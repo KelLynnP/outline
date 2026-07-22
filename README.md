@@ -1,81 +1,166 @@
 # life console
 
-a calm, visual "life console" — a train-line timeline as the spine, a today
-panel widget, and body-first signals. built to be played with day one on
-seeded sample data; real integrations (heptabase, strava, calendar, garmin,
-doordash) plug in behind adapters when you're ready.
+A personal "life console": one workboard page with a timeline spine, a task
+board, and a calendar (day / week / month), backed by a small Hono + SQLite
+API. Google Calendar syncs in live; tasks, day themes, and manual events are
+local. This README is the technical overview for agents working on the code.
+Read `AGENTS.md` too — it has the calendar-integration warnings and house
+style, and both are load-bearing.
 
 ## quick start
 
 ```bash
 npm install
-npm run seed       # populates data/console.db with ~2 months of sample data
+npm run seed       # populates data/console.db with sample data
 npm run dev        # backend on :4000, frontend on :5173 with proxy
 ```
 
-open http://localhost:5173
+Open http://localhost:5173. Reset anytime with `rm -f data/console.db && npm run seed`.
 
-to reset and reseed anytime:
+## architecture
 
-```bash
-rm -f data/console.db && npm run seed
-```
-
-## layout
+npm-workspaces monorepo, deliberately simple: no ORM, no state library, no
+router library.
 
 ```
-backend/    Hono + better-sqlite3 + node-cron. serves API and (in prod) the built frontend.
-frontend/   Vite + React + TS. the train line, today panel, settings.
-shared/     types shared by both.
-data/       SQLite db lives here (gitignored).
-settings.json   single settings surface (created on first run from defaults).
+backend/    Hono + better-sqlite3 + node-cron. Raw SQL in queries.ts, routes
+            inline in index.ts, schema + ensureColumn migrations in db.ts.
+frontend/   Vite + React + TS. One page (Opt3Page "workboard") + settings.
+            Per-page useState; components get data + callbacks, pages own
+            loading. Custom ~40-line router in router.tsx.
+shared/     Types (types.ts) and settings schema (settings.ts).
+data/       SQLite db (gitignored). settings.json at repo root.
 ```
 
-## configuration
+Config split: secrets in `.env` (loaded path-resolved via `backend/src/env.ts`
+— workspace scripts run with cwd `backend/`, so one-off tsx scripts must
+`import "./src/env.ts"` first). Feature toggles in `settings.json`
+(`sources.*` gates each adapter in `backend/src/adapters/`).
 
-everything lives in `settings.json` at the repo root. edit it in the console
-settings panel or by hand — both write the same file. see
-`shared/src/settings.ts` for the schema and defaults.
+## data model (sqlite, see backend/src/db.ts)
 
-## integrations (phase 2+)
+**items** — tasks and notes.
+- `kind`: `"task" | "note"`. Notes are freeform "keep in mind" entries: no
+  checkbox in the UI, never listed under done; archiving = closeItem.
+- `status`: `open | closed | carried` (+ `closed_date`, full ISO timestamp so
+  the UI shows *when* completed; older rows may be date-only).
+- `priority` 1–3, `tags` (comma string in db, `string[]` in API), `due_date`.
+- `assignee`: free-text person name (stored without `@`); powers the
+  "by person" load view. No people directory.
+- `parent_id`: task nesting (projects are just tasks with children). Cycles
+  are rejected in `updateItem`.
 
-each external source is an adapter in `backend/src/adapters/` with a
-per-source toggle in `settings.json → sources`. all are off by default and
-stubbed. drop your heptabase MCP OAuth token + Anthropic API key in a `.env`
-file (see `.env.example`) when you're ready to turn synthesis on.
+**events** — calendar entries, one row per event.
+- `source`: `"manual" | "task" | "calendar"`. `task` events are the scheduled
+  block for an item (`item_id` set); a task has at most one — POSTing a new
+  task event deletes the old (`deleteTaskEvents`), so re-drop = move.
+- `start_time`/`end_time` null ⇒ all-day ("day task" / theme).
+- `end_date` ⇒ multi-day all-day span, last day inclusive. List queries match
+  every overlapped day (`date <= X AND COALESCE(end_date, date) >= X`).
+- `hue` (0–360): user-picked color for manual events.
+- calendar-synced rows carry `external_id`, `location`, `description`,
+  `attendees` (JSON), `deeplink`.
+- List queries LEFT JOIN items to expose `item_tag` (first tag of the linked
+  task) for color coding.
 
-```
-ANTHROPIC_API_KEY=
-HEPTABASE_MCP_URL=https://api.heptabase.com/mcp
-HEPTABASE_OAUTH_TOKEN=
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REFRESH_TOKEN=
-```
+**stops / signals / direction** — daily journal summaries + notes, body
+signals (meal/bike/ocean/sleep), and the daily direction sentence. Mostly
+predate the workboard; DayNotes uses `stops.notes`.
 
-### calendar (google, oauth read-only)
+`listAllItems` joins task events onto items as `scheduled_date` /
+`scheduled_time` — "scheduled" in the UI means "has a calendar block".
 
-the adapter (`backend/src/adapters/calendar.ts`) pulls from the Google
-Calendar API with the `calendar.readonly` scope. one-time setup:
+## API surface (backend/src/index.ts)
 
-1. [console.cloud.google.com](https://console.cloud.google.com) → new project
-   → APIs & Services → enable **Google Calendar API**.
-2. OAuth consent screen: user type **Internal** (Workspace) — no verification
-   needed. add the `calendar.readonly` scope.
-3. Credentials → create **OAuth client ID** → type **Desktop app**. put the
-   client id + secret in `.env` as `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
-4. `npm run auth:google --workspace backend` — opens a consent page, prints
-   `GOOGLE_REFRESH_TOKEN=...` to paste into `.env`.
-5. flip `settings.json → sources.calendar` to `true`, restart the backend.
+Items: `GET /api/items/all`, `POST /api/items`, `PATCH /api/items/:id`
+(text/tag/due_date/priority/tags/assignee/parent_id), `POST .../close`
+(also deletes its calendar block), `.../reopen`, `.../carry`,
+`DELETE /api/items/:id/schedule` (unschedule = delete task events only).
 
-sync runs hourly (`runCalendarSync` in `backend/src/synthesis.ts`) and on
-demand via `POST /api/sync/calendar`. it replaces all `source = "calendar"`
-rows in the `events` table for the next 14 days; manual events are never
-touched. synced events render outlined in the daily calendar, aren't
-deletable from the UI, and double-click opens them in Google Calendar.
-`GOOGLE_CALENDAR_ID` in `.env` picks a non-primary calendar if you want one.
+Events: `GET /api/events?date=` or `?from=&to=`, `POST /api/events`,
+`PATCH /api/events/:id` (status, start/end_time, date, hue, end_date —
+end_date is nulled if ≤ start date), `DELETE /api/events/:id`. Accept/decline
+on Google-synced events also RSVPs via the calendar adapter.
 
-## design constitution
+Other: `/api/line`, `/api/today`, `/api/stops/:date(/notes)`, `/api/signals`,
+`/api/settings`, `/api/sources`, `POST /api/sync/calendar`,
+`/api/heptabase/todos`.
 
-no push notifications. no gamification. no real-time. one settings surface.
-the console is a vestibule; every piece of content deeplinks to heptabase.
+## frontend map
+
+- `pages/Opt3Page.tsx` — the workboard. Owns `selectedDate` + `view`
+  (day/week/month): the **date bar under the timeline is the single source of
+  truth** for what all sections display. Owns scheduling callbacks
+  (`scheduleTaskAtTime`, `assignTaskToDay` = all-day theme) and `load()`;
+  bumps `calVersion` per load so calendars (which fetch their own events)
+  refetch — pass it as `refreshKey`.
+- `components/Tasks.tsx` — `TaskTable`: composer row (note toggle, prio,
+  due, @person, tags, urgent), then sections **today** (flat, everything
+  scheduled today) / **to dos** (all open, subgrouped by first tag, nested
+  tree) / **by person** / **done** (capped 20). Every section, tag subgroup
+  and tree node is a toggle. Rows: check circle (notes get `~`), priority
+  bars (click cycles), inline edit (dblclick text; click chips for tags /
+  assignee / due-date picker), hover icons (unschedule ↩, unnest ↖, add
+  subtask +, archive ×). `TaskComposer`/`TaskMeta` at the top of the file are
+  legacy (old pages, removed).
+- `components/DailyCalendar.tsx` — biggest file. 24h scrollable track with
+  zoom (persisted hourPx), drag-to-schedule with duration-preserving ghost,
+  block move/resize (15-min snap), click-empty-slot draft popover, event
+  detail popover (Esc / click-away, accept/decline with 6s undo toast,
+  editable times, color swatches, guest + description collapse, "until" date
+  for all-day spans), quick-done ✓ on task blocks, tasks/declined visibility
+  toggles. Note `suppressTrackClick` coordinating popup-close, draft-open and
+  resize-release — read it before touching track click handling.
+- `components/WeekCalendar.tsx` — hour grid + **all-day lane**: day tasks /
+  themes as bars (packed onto shared lines when they don't overlap; dashed =
+  multi-day). Drop a task on a *day header* → all-day theme; drop in the grid
+  → timed block at that hour. Bars stretch horizontally (drag right edge) to
+  set `end_date`. Weekend toggle (5/7 columns).
+- `components/DayDots.tsx` — mini month as a small gantt: day circles per
+  week with thin colored theme bars beneath; bars draggable between days,
+  drops on circles create themes.
+- `components/TimelineV2.tsx` — the spine. Highlights the selected day /
+  week / month range (`selectedRange` prop, display-only). Day slots are
+  click + drop targets.
+- `dnd.ts` — all drag/drop plumbing. HTML5 DnD; `TASK_MIME` / `EVENT_MIME`
+  carry ids; **duration and source-id ride in extra type names** (readable
+  during dragover, when getData is blocked). Rows ignore their own drag
+  (`ignoreId`) so dragging out to the calendar isn't captured at dragstart.
+- `colors.ts` — tag → stable pastel hue (hash), same formula for manual-event
+  hues; used by chips, blocks, bars everywhere.
+- `useToggle.ts` — persisted boolean toggle (localStorage). Used liberally;
+  the house pattern for any show/hide.
+- `time.ts` — 12-hour display formatting (`7a`, `1:30p`). Inputs stay native.
+
+## calendar sync (LIVE — be careful)
+
+`backend/src/adapters/calendar.ts` is verified against the user's real Google
+Calendar. **Do not stub it out** (see `AGENTS.md`). Hourly sync + on-demand
+`POST /api/sync/calendar` replaces `source = "calendar"` rows for today..+14d
+via `replaceSourceEvents`; manual/task events are never touched. Synced
+events are read-only in the UI (no move/resize/color); accept/decline RSVPs
+back to Google. Known gap: multi-day Google events sync as single-day (the
+adapter doesn't map `end.date` spans yet). Setup steps for OAuth live in git
+history of this file and in `.env.example`; mint tokens with
+`npm run auth:google --workspace backend`.
+
+## conventions
+
+- Keep it grug: raw SQL in `queries.ts`, routes inline, no new abstractions
+  or libraries without a strong reason.
+- Schema changes via `ensureColumn` in `db.ts` (additive, auto-migrating).
+- Components own their fetches only for event data (calendars); items flow
+  down from the page. After anything that changes events server-side,
+  either reload locally or rely on `refreshKey`.
+- Toggles everywhere, persisted via `useToggle`. Prefer adding a toggle over
+  removing a feature.
+- No push notifications, no gamification, no real-time. Deeplinks out to
+  heptabase/Google rather than re-implementing them.
+
+## history / reverting
+
+The old exploration pages (main, opt1 "widgets", opt2 "keep + track") were
+removed when the workboard became the app — restore them by reverting the
+commit "make workboard the app". Some components they used (`Face`,
+`TrainLine`, `TodayPanel`, base `.task-table` CSS) are still in-tree and
+unused.
