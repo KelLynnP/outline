@@ -51,6 +51,8 @@ export async function runCalendarSync(days = 14): Promise<number> {
 }
 
 export function scheduleJobs() {
+  // sync once on boot so a fresh/reseeded DB fills immediately
+  runCalendarSync().catch((e) => console.error("calendar_sync_boot", e));
   cron.schedule("15 3 * * *", () => {
     runNightlyStopSummaries().catch((e) => console.error("nightly", e));
   });

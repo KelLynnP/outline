@@ -15,6 +15,24 @@ export interface CaughtItem {
   closed_date: string | null;
   priority: Priority;
   tags: string[];
+  // Free-text person name (no directory yet) — for team deadlines / load.
+  assignee: string | null;
+  // Nesting: project tasks are parents; null = top-level.
+  parent_id: number | null;
+  // "note" = freeform thought, no checkbox, never shows in done.
+  kind: "task" | "note";
+  // Set when a "task" calendar event exists for this item (see listAllItems).
+  scheduled_date?: string | null; // YYYY-MM-DD
+  scheduled_time?: string | null; // HH:MM
+}
+
+export type EventStatus = "pending" | "confirmed" | null;
+
+export interface EventAttendee {
+  name: string | null;
+  email: string | null;
+  status: string | null; // accepted | declined | tentative | needsAction
+  self?: boolean;
 }
 
 export interface CalendarEvent {
@@ -23,8 +41,20 @@ export interface CalendarEvent {
   start_time: string | null; // HH:MM
   end_time: string | null; // HH:MM
   title: string;
-  source: string;
+  source: string; // "manual" | "task" | "calendar" | "google" | ...
   deeplink: string | null;
+  item_id: number | null; // set when source === "task"
+  status: EventStatus;
+  external_id: string | null;
+  location: string | null;
+  description: string | null;
+  attendees: EventAttendee[];
+  // First tag of the linked task (task events only) — used for color coding.
+  item_tag?: string | null;
+  // User-picked hue (0-360) for manual events.
+  hue?: number | null;
+  // Multi-day all-day span: last day inclusive (null = single day).
+  end_date?: string | null;
 }
 
 export type SignalType = "meal" | "bike" | "ocean" | "sleep";

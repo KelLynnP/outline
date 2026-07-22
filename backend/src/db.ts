@@ -50,7 +50,10 @@ db.exec(`
     end_time TEXT,
     title TEXT NOT NULL,
     source TEXT NOT NULL DEFAULT 'manual',
-    deeplink TEXT
+    deeplink TEXT,
+    item_id INTEGER,
+    status TEXT,
+    external_id TEXT
   );
 
   CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
@@ -67,4 +70,15 @@ function ensureColumn(table: string, column: string, ddl: string) {
 }
 ensureColumn("items", "priority", "priority INTEGER NOT NULL DEFAULT 2");
 ensureColumn("items", "tags", "tags TEXT NOT NULL DEFAULT ''");
+ensureColumn("items", "assignee", "assignee TEXT"); // free-text @person, internal only
+ensureColumn("items", "parent_id", "parent_id INTEGER"); // nest under another item (project)
+ensureColumn("items", "kind", "kind TEXT NOT NULL DEFAULT 'task'"); // task | note (freeform, uncheckable)
 ensureColumn("stops", "notes", "notes TEXT");
+ensureColumn("events", "item_id", "item_id INTEGER");
+ensureColumn("events", "status", "status TEXT");
+ensureColumn("events", "external_id", "external_id TEXT");
+ensureColumn("events", "location", "location TEXT");
+ensureColumn("events", "description", "description TEXT");
+ensureColumn("events", "attendees", "attendees TEXT");
+ensureColumn("events", "hue", "hue INTEGER"); // user-picked color for manual events
+ensureColumn("events", "end_date", "end_date TEXT"); // multi-day span (all-day events)

@@ -7,6 +7,8 @@ interface Props {
   compact?: boolean;
   simple?: boolean; // simple = past-only overview, hides future task pins
   selectedDate?: string;
+  /** Highlight band for the range the page is showing (day / week / month). */
+  selectedRange?: { from: string; to: string };
   onSelectDate?: (iso: string) => void;
   onDropTask?: (itemId: number, date: string) => void;
 }
@@ -35,6 +37,7 @@ export function TimelineV2({
   compact = false,
   simple = false,
   selectedDate,
+  selectedRange,
   onSelectDate,
   onDropTask,
 }: Props) {
@@ -68,12 +71,18 @@ export function TimelineV2({
 
   void start;
   const todayX = x(line.today);
-  const stopMap = new Map(line.stops.map((s) => [s.date, s]));
   const dotSet = new Set(line.dots);
   const stopSet = new Set(line.stops.map((s) => s.date));
 
-  const captionDate = hovered ?? selectedDate ?? null;
-  const captionStop = captionDate ? stopMap.get(captionDate) : null;
+  // Selected-range band, clamped to the visible window.
+  const dayW = 1000 / total;
+  const band = selectedRange
+    ? (() => {
+        const x1 = Math.max(0, Math.min(1000, x(selectedRange.from) - dayW / 2));
+        const x2 = Math.max(0, Math.min(1000, x(selectedRange.to) + dayW / 2));
+        return x2 > x1 ? { x: x1, w: x2 - x1 } : null;
+      })()
+    : null;
 
   return (
     <div className="tlv2">
@@ -83,6 +92,18 @@ export function TimelineV2({
           preserveAspectRatio="none"
           style={{ height, width: "100%" }}
         >
+          {band && (
+            <rect
+              x={band.x}
+              y={trackY - 34}
+              width={band.w}
+              height={62}
+              rx={4}
+              fill="var(--accent)"
+              opacity={0.09}
+            />
+          )}
+
           {monthDividers.map((m) => (
             <g key={`${m.x}-${m.label}`}>
               <line
@@ -97,10 +118,10 @@ export function TimelineV2({
               <text
                 x={m.x + 6}
                 y={trackY - 24}
-                fontSize={9}
+                fontSize={12}
                 fontWeight={700}
                 letterSpacing={1.5}
-                fill="var(--tl-muted)"
+                fill="var(--tl-ink)"
                 fontFamily="var(--display)"
               >
                 {m.label}
@@ -115,9 +136,9 @@ export function TimelineV2({
               <text
                 key={`wk-${d}`}
                 x={x(d)}
-                y={trackY + 36}
+                y={trackY + 38}
                 textAnchor="middle"
-                fontSize={8}
+                fontSize={11}
                 fill="var(--tl-muted)"
                 fontFamily="var(--display)"
                 letterSpacing={0.5}
@@ -208,7 +229,7 @@ export function TimelineV2({
                     x={x(f.date)}
                     y={trackY - 14}
                     textAnchor="middle"
-                    fontSize={9}
+                    fontSize={11}
                     fontWeight={600}
                     fill={isUrgent ? "var(--accent-urgent)" : "var(--tl-ink)"}
                     fontFamily="var(--display)"
@@ -239,7 +260,7 @@ export function TimelineV2({
             <text
               y={-36}
               textAnchor="middle"
-              fontSize={9}
+              fontSize={11}
               fontWeight={700}
               letterSpacing={2}
               fill="var(--accent)"
@@ -276,13 +297,6 @@ export function TimelineV2({
           })}
         </div>
       </div>
-
-      {captionDate && (
-        <div className="tlv2-hover-caption">
-          <b>{shortDate(captionDate)}</b>
-          {captionStop?.summary ? ` · ${captionStop.summary}` : ""}
-        </div>
-      )}
     </div>
   );
 }

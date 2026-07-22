@@ -7,8 +7,8 @@ import { WeekCalendar } from "../components/WeekCalendar.js";
 import { MonthCalendar } from "../components/MonthCalendar.js";
 import { DayDots } from "../components/DayDots.js";
 import { DayNotes } from "../components/DayNotes.js";
-import { TaskComposer } from "../components/Tasks.js";
-import { taskDragProps } from "../dnd.js";
+import { TaskTable } from "../components/Tasks.js";
+import { useToggle } from "../useToggle.js";
 
 type ViewMode = "day" | "week" | "month";
 
@@ -27,11 +27,14 @@ export function Opt3Page() {
   const [today, setToday] = useState<TodayView | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [items, setItems] = useState<CaughtItem[]>([]);
-  const [filter, setFilter] = useState<"open" | "urgent" | "overdue" | "all">("open");
   const [view, setView] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState<string>(() =>
     new Date().toISOString().slice(0, 10),
   );
+  const [tasksOpen, toggleTasksSection] = useToggle("opt3.tasksOpen", true);
+  // Bumped on every page-level reload so the calendars refetch their events
+  // (they own their own fetches, e.g. after unschedule/complete from the board).
+  const [calVersion, setCalVersion] = useState(0);
 
   const load = useCallback(async () => {
     const [l, t, s, i] = await Promise.all([
@@ -44,32 +47,56 @@ export function Opt3Page() {
     setToday(t);
     setSettings(s);
     setItems(i);
+    setCalVersion((v) => v + 1);
   }, []);
 
   useEffect(() => {
     load().catch(console.error);
   }, [load]);
 
-  const scheduleTaskOnDay = useCallback(
-    async (itemId: number, date: string) => {
-      await api.updateItem(itemId, { due_date: date });
-      load();
+  // Scheduling a task = set its due_date + create a light-yellow "task event"
+  // on the calendar. Default 9:00 for 1 hour; time-slot drops pass the exact
+  // hour, and moving an existing block passes its duration.
+  const scheduleTaskAtTime = useCallback(
+    async (itemId: number, date: string, startHM = "09:00", durationMin = 60) => {
+      const item = await api.updateItem(itemId, { due_date: date });
+      const [h, m] = startHM.split(":").map(Number);
+      const endTotal = h * 60 + m + durationMin;
+      const endHM = `${String(Math.floor(endTotal / 60) % 24).padStart(2, "0")}:${String(endTotal % 60).padStart(2, "0")}`;
+      await api.addEvent({
+        date,
+        start_time: startHM,
+        end_time: endHM,
+        title: item.text,
+        source: "task",
+        item_id: itemId,
+        status: "pending",
+      });
+      await load();
     },
     [load],
   );
-
-  const filtered = useMemo(() => {
-    if (!today) return [] as CaughtItem[];
-    const open = items.filter((i) => i.status !== "closed");
-    if (filter === "urgent")
-      return open.filter((i) => i.tag === "#c!" || i.priority === 1);
-    if (filter === "overdue")
-      return open.filter(
-        (i) => i.due_date && new Date(i.due_date) < new Date(today.date),
-      );
-    if (filter === "all") return items;
-    return open;
-  }, [items, filter, today]);
+  const scheduleTaskOnDay = useCallback(
+    (itemId: number, date: string) => scheduleTaskAtTime(itemId, date, "09:00"),
+    [scheduleTaskAtTime],
+  );
+  // Assign a task to a whole day (no time) — a "day task" like "build day".
+  const assignTaskToDay = useCallback(
+    async (itemId: number, date: string) => {
+      const item = await api.updateItem(itemId, { due_date: date });
+      await api.addEvent({
+        date,
+        start_time: null,
+        end_time: null,
+        title: item.text,
+        source: "task",
+        item_id: itemId,
+        status: "pending",
+      });
+      await load();
+    },
+    [load],
+  );
 
   if (!line || !today || !settings) return <div className="quiet">loading…</div>;
 
@@ -81,6 +108,19 @@ export function Opt3Page() {
   const jumpToday = () => setSelectedDate(new Date().toISOString().slice(0, 10));
 
   const anchor = new Date(selectedDate + "T00:00:00");
+  // The range the page is currently showing; the timeline highlights it.
+  const selectedRange =
+    view === "week"
+      ? (() => {
+          const from = mondayOf(selectedDate);
+          return { from, to: iso(new Date(new Date(from + "T00:00:00").getTime() + 6 * DAY_MS)) };
+        })()
+      : view === "month"
+        ? {
+            from: iso(new Date(anchor.getFullYear(), anchor.getMonth(), 1)),
+            to: iso(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)),
+          }
+        : { from: selectedDate, to: selectedDate };
   const selectedLabel =
     view === "day"
       ? anchor.toLocaleDateString("en-US", {
@@ -105,14 +145,15 @@ export function Opt3Page() {
             line={line}
             simple
             selectedDate={selectedDate}
+            selectedRange={selectedRange}
             onSelectDate={setSelectedDate}
             onDropTask={scheduleTaskOnDay}
           />
         </div>
 
-        {/* ---------------- header ---------------- */}
+        {/* ---------- global date bar: the one source of truth for what
+             dates the sections below (tasks, later health) display ---------- */}
         <div className="workboard-head">
-          <div className="workboard-title">workboard</div>
           <div className="workboard-nav">
             <button
               onClick={() =>
@@ -131,8 +172,8 @@ export function Opt3Page() {
             >
               ›
             </button>
-            <span className="workboard-date">{selectedLabel}</span>
           </div>
+          <span className="workboard-date">{selectedLabel}</span>
           <div className="view-toggle">
             {(["day", "week", "month"] as const).map((v) => (
               <button
@@ -146,49 +187,22 @@ export function Opt3Page() {
           </div>
         </div>
 
+        {/* ---------------- section toggle ---------------- */}
+        <button className="section-toggle" onClick={toggleTasksSection}>
+          {tasksOpen ? "▾" : "▸"} tasks
+        </button>
+
+        {tasksOpen && (
+        <>
         {/* ---------------- tasks + calendar ---------------- */}
         <div className="workboard-body">
           <div className="wb-tasks">
-            <div className="wb-section-head">
-              <span>tasks</span>
-              <div className="widget-filters">
-                {(["open", "urgent", "overdue", "all"] as const).map((f) => (
-                  <button
-                    key={f}
-                    className={filter === f ? "active" : ""}
-                    onClick={() => setFilter(f)}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <TaskComposer settings={settings} onCreated={load} compact />
-            <div className="drag-hint">drag a row onto any day to schedule it.</div>
-            <table className="task-table">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>PRIO</th>
-                  <th>DUE</th>
-                  <th>TASK</th>
-                  <th>TAGS</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((it) => (
-                  <TaskRow key={it.id} item={it} onChange={load} />
-                ))}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="quiet">
-                      nothing matches.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <TaskTable
+              items={items}
+              settings={settings}
+              onChange={load}
+              scheduleToday={(id) => scheduleTaskAtTime(id, today.date)}
+            />
           </div>
 
           <div className="wb-cal">
@@ -196,8 +210,13 @@ export function Opt3Page() {
               <span>
                 {view === "day" ? "schedule" : view === "week" ? "week" : "month"}
               </span>
-              <span className="quiet">
-                {view === "day" && today.date === selectedDate ? "today" : ""}
+              <span className="date-chip">
+                {today.date === selectedDate
+                  ? "today"
+                  : anchor.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    })}
               </span>
             </div>
 
@@ -205,7 +224,9 @@ export function Opt3Page() {
               <DailyCalendar
                 date={selectedDate}
                 variant="widget"
-                onDropTask={scheduleTaskOnDay}
+                onDropTaskAtTime={scheduleTaskAtTime}
+                onTaskChange={load}
+                refreshKey={calVersion}
               />
             )}
             {view === "week" && (
@@ -215,7 +236,9 @@ export function Opt3Page() {
                   setSelectedDate(d);
                   setView("day");
                 }}
-                onDropTask={scheduleTaskOnDay}
+                onDropTaskAtTime={scheduleTaskAtTime}
+                onDropTaskOnDay={assignTaskToDay}
+                refreshKey={calVersion}
               />
             )}
             {view === "month" && (
@@ -232,7 +255,8 @@ export function Opt3Page() {
             <DayDots
               selectedISO={selectedDate}
               onSelect={setSelectedDate}
-              onDropTask={scheduleTaskOnDay}
+              onDropTask={assignTaskToDay}
+              refreshKey={calVersion}
             />
           </div>
         </div>
@@ -241,73 +265,9 @@ export function Opt3Page() {
         <div className="workboard-notes">
           <DayNotes date={selectedDate} />
         </div>
+        </>
+        )}
       </div>
     </div>
-  );
-}
-
-function TaskRow({
-  item,
-  onChange,
-}: {
-  item: CaughtItem;
-  onChange: () => void;
-}) {
-  const overdue = item.due_date && new Date(item.due_date) < new Date();
-  return (
-    <tr
-      className={overdue ? "overdue" : ""}
-      data-item-id={item.id}
-      {...taskDragProps(item.id)}
-    >
-      <td className="drag-handle" title="drag onto a day to schedule">⋮⋮</td>
-      <td>
-        <span className={`prio-chip prio-${item.priority}`}>P{item.priority}</span>
-      </td>
-      <td className="mono">
-        {item.due_date
-          ? new Date(item.due_date + "T00:00:00").toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-            })
-          : "—"}
-      </td>
-      <td className="task-text">
-        {item.tag === "#c!" && <span className="tag-c urgent">!</span>}
-        {item.tag === "#c?" && <span className="tag-c question">?</span>}
-        {item.text}
-      </td>
-      <td>
-        {item.tags.length === 0 ? (
-          <span className="quiet mono">—</span>
-        ) : (
-          item.tags.map((t) => (
-            <span key={t} className="tag-chip">
-              #{t}
-            </span>
-          ))
-        )}
-      </td>
-      <td className="task-actions">
-        <button
-          onClick={async () => {
-            await api.closeItem(item.id);
-            onChange();
-          }}
-        >
-          close
-        </button>
-        {item.status !== "carried" && (
-          <button
-            onClick={async () => {
-              await api.carryItem(item.id);
-              onChange();
-            }}
-          >
-            carry
-          </button>
-        )}
-      </td>
-    </tr>
   );
 }

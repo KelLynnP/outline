@@ -23,7 +23,17 @@ type ItemRow = {
   closed_date: string | null;
   priority: number;
   tags: string;
+  assignee: string | null;
+  parent_id: number | null;
+  kind: string;
 };
+
+/** Strip leading @ and normalize whitespace. Empty → null. */
+function normalizeAssignee(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const s = raw.trim().replace(/^@+/, "");
+  return s || null;
+}
 
 type SignalRow = {
   id: number;
@@ -52,6 +62,9 @@ const rowToItem = (r: ItemRow): CaughtItem => ({
   closed_date: r.closed_date,
   priority: ((r.priority as Priority) ?? 2) as Priority,
   tags: r.tags ? r.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+  assignee: r.assignee ?? null,
+  parent_id: r.parent_id ?? null,
+  kind: r.kind === "note" ? "note" : "task",
 });
 const rowToSignal = (r: SignalRow): BodySignal => ({
   id: r.id,
@@ -110,11 +123,24 @@ export function listOpenItems(): CaughtItem[] {
 }
 
 export function listAllItems(): CaughtItem[] {
+  type Row = ItemRow & {
+    scheduled_date: string | null;
+    scheduled_time: string | null;
+  };
   return (
     db
-      .prepare("SELECT * FROM items ORDER BY captured_date DESC")
-      .all() as ItemRow[]
-  ).map(rowToItem);
+      .prepare(
+        `SELECT i.*, e.date AS scheduled_date, e.start_time AS scheduled_time
+         FROM items i
+         LEFT JOIN events e ON e.source = 'task' AND e.item_id = i.id
+         ORDER BY i.captured_date DESC`,
+      )
+      .all() as Row[]
+  ).map((r) => ({
+    ...rowToItem(r),
+    scheduled_date: r.scheduled_date,
+    scheduled_time: r.scheduled_time,
+  }));
 }
 
 export function listCarriedItems(): CaughtItem[] {
@@ -143,15 +169,23 @@ export function addItem(input: {
   source_deeplink?: string | null;
   priority?: Priority;
   tags?: string[];
+  assignee?: string | null;
+  parent_id?: number | null;
+  kind?: "task" | "note";
 }): CaughtItem {
   const settings = readSettings();
   const tag = input.tag ?? settings.tags.normal;
   const priority = input.priority ?? 2;
   const tagList = (input.tags ?? []).join(",");
+  const parentId = input.parent_id ?? null;
+  if (parentId != null) {
+    const parent = db.prepare("SELECT id FROM items WHERE id = ?").get(parentId);
+    if (!parent) throw new Error("parent_not_found");
+  }
   const info = db
     .prepare(
-      `INSERT INTO items (text, tag, captured_date, due_date, status, source_deeplink, priority, tags)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?)`,
+      `INSERT INTO items (text, tag, captured_date, due_date, status, source_deeplink, priority, tags, assignee, parent_id, kind)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.text,
@@ -161,10 +195,29 @@ export function addItem(input: {
       input.source_deeplink ?? null,
       priority,
       tagList,
+      normalizeAssignee(input.assignee),
+      parentId,
+      input.kind === "note" ? "note" : "task",
     );
   return rowToItem(
     db.prepare("SELECT * FROM items WHERE id = ?").get(info.lastInsertRowid) as ItemRow,
   );
+}
+
+/** True if `maybeAncestor` is id or any ancestor of id (cycle check). */
+function isAncestorOf(maybeAncestor: number, id: number): boolean {
+  let cur: number | null = id;
+  const seen = new Set<number>();
+  while (cur != null) {
+    if (cur === maybeAncestor) return true;
+    if (seen.has(cur)) break;
+    seen.add(cur);
+    const row = db.prepare("SELECT parent_id FROM items WHERE id = ?").get(cur) as
+      | { parent_id: number | null }
+      | undefined;
+    cur = row?.parent_id ?? null;
+  }
+  return false;
 }
 
 export function updateItem(
@@ -175,31 +228,66 @@ export function updateItem(
     due_date?: string | null;
     priority?: Priority;
     tags?: string[];
+    assignee?: string | null;
+    parent_id?: number | null;
   },
 ): CaughtItem | null {
   const current = db.prepare("SELECT * FROM items WHERE id = ?").get(id) as
     | ItemRow
     | undefined;
   if (!current) return null;
+  let parentId =
+    patch.parent_id === undefined ? current.parent_id : patch.parent_id;
+  if (parentId != null) {
+    if (parentId === id) parentId = null; // can't parent yourself
+    else if (isAncestorOf(id, parentId)) parentId = current.parent_id; // refuse cycles
+    else {
+      const parent = db.prepare("SELECT id FROM items WHERE id = ?").get(parentId);
+      if (!parent) parentId = current.parent_id;
+    }
+  }
   const next = {
     text: patch.text ?? current.text,
     tag: patch.tag ?? current.tag,
     due_date: patch.due_date === undefined ? current.due_date : patch.due_date,
     priority: patch.priority ?? current.priority,
     tags: patch.tags ? patch.tags.join(",") : current.tags,
+    assignee:
+      patch.assignee === undefined
+        ? current.assignee
+        : normalizeAssignee(patch.assignee),
+    parent_id: parentId,
   };
   db.prepare(
-    "UPDATE items SET text=?, tag=?, due_date=?, priority=?, tags=? WHERE id=?",
-  ).run(next.text, next.tag, next.due_date, next.priority, next.tags, id);
+    "UPDATE items SET text=?, tag=?, due_date=?, priority=?, tags=?, assignee=?, parent_id=? WHERE id=?",
+  ).run(
+    next.text,
+    next.tag,
+    next.due_date,
+    next.priority,
+    next.tags,
+    next.assignee,
+    next.parent_id,
+    id,
+  );
   return rowToItem(
     db.prepare("SELECT * FROM items WHERE id = ?").get(id) as ItemRow,
   );
 }
 
 export function closeItem(id: number): CaughtItem | null {
+  // Full ISO timestamp so the UI can show *when* it was completed.
   db.prepare(
     "UPDATE items SET status='closed', closed_date=? WHERE id = ?",
-  ).run(todayISO(), id);
+  ).run(iso(new Date()), id);
+  const row = db.prepare("SELECT * FROM items WHERE id = ?").get(id) as
+    | ItemRow
+    | undefined;
+  return row ? rowToItem(row) : null;
+}
+
+export function reopenItem(id: number): CaughtItem | null {
+  db.prepare("UPDATE items SET status='open', closed_date=NULL WHERE id = ?").run(id);
   const row = db.prepare("SELECT * FROM items WHERE id = ?").get(id) as
     | ItemRow
     | undefined;
@@ -370,17 +458,62 @@ type EventRow = {
   title: string;
   source: string;
   deeplink: string | null;
+  item_id: number | null;
+  status: string | null;
+  external_id: string | null;
+  location: string | null;
+  description: string | null;
+  attendees: string | null; // JSON
+  hue: number | null;
+  end_date: string | null;
+  item_tags?: string | null; // joined from items.tags for task events
 };
 
-const rowToEvent = (r: EventRow): CalendarEvent => ({ ...r });
+function parseAttendees(raw: string | null): CalendarEvent["attendees"] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
+const rowToEvent = (r: EventRow): CalendarEvent => ({
+  id: r.id,
+  date: r.date,
+  start_time: r.start_time,
+  end_time: r.end_time,
+  title: r.title,
+  source: r.source,
+  deeplink: r.deeplink,
+  item_id: r.item_id ?? null,
+  status: (r.status as CalendarEvent["status"]) ?? null,
+  external_id: r.external_id ?? null,
+  location: r.location ?? null,
+  description: r.description ?? null,
+  attendees: parseAttendees(r.attendees),
+  hue: r.hue ?? null,
+  end_date: r.end_date ?? null,
+  item_tag: r.item_tags
+    ? (r.item_tags.split(",").map((t) => t.trim()).filter(Boolean)[0] ?? null)
+    : null,
+});
+
+// Task events carry their item's tags so the UI can color-code by tag.
+const EVENT_SELECT =
+  "SELECT e.*, i.tags AS item_tags FROM events e LEFT JOIN items i ON i.id = e.item_id";
+
+// Multi-day events (end_date set) match every day they overlap.
 export function listEvents(date: string): CalendarEvent[] {
   return (
     db
       .prepare(
-        "SELECT * FROM events WHERE date = ? ORDER BY COALESCE(start_time, '99:99')",
+        `${EVENT_SELECT}
+         WHERE e.date <= ? AND COALESCE(e.end_date, e.date) >= ?
+         ORDER BY COALESCE(e.start_time, '99:99')`,
       )
-      .all(date) as EventRow[]
+      .all(date, date) as EventRow[]
   ).map(rowToEvent);
 }
 
@@ -388,9 +521,11 @@ export function listEventsRange(from: string, to: string): CalendarEvent[] {
   return (
     db
       .prepare(
-        "SELECT * FROM events WHERE date BETWEEN ? AND ? ORDER BY date, COALESCE(start_time, '99:99')",
+        `${EVENT_SELECT}
+         WHERE e.date <= ? AND COALESCE(e.end_date, e.date) >= ?
+         ORDER BY e.date, COALESCE(e.start_time, '99:99')`,
       )
-      .all(from, to) as EventRow[]
+      .all(to, from) as EventRow[]
   ).map(rowToEvent);
 }
 
@@ -398,29 +533,96 @@ export function addEvent(input: {
   date: string;
   start_time?: string | null;
   end_time?: string | null;
+  end_date?: string | null;
   title: string;
   source?: string;
   deeplink?: string | null;
+  item_id?: number | null;
+  status?: "pending" | "confirmed" | null;
+  external_id?: string | null;
+  location?: string | null;
+  description?: string | null;
+  attendees?: CalendarEvent["attendees"];
 }): CalendarEvent {
   const info = db
     .prepare(
-      "INSERT INTO events (date, start_time, end_time, title, source, deeplink) VALUES (?, ?, ?, ?, ?, ?)",
+      `INSERT INTO events
+       (date, start_time, end_time, end_date, title, source, deeplink, item_id, status, external_id,
+        location, description, attendees)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.date,
       input.start_time ?? null,
       input.end_time ?? null,
+      input.end_date ?? null,
       input.title,
       input.source ?? "manual",
       input.deeplink ?? null,
+      input.item_id ?? null,
+      input.status ?? null,
+      input.external_id ?? null,
+      input.location ?? null,
+      input.description ?? null,
+      input.attendees?.length ? JSON.stringify(input.attendees) : null,
     );
   return rowToEvent(
     db.prepare("SELECT * FROM events WHERE id = ?").get(info.lastInsertRowid) as EventRow,
   );
 }
 
+export function updateEventHue(id: number, hue: number | null): CalendarEvent | null {
+  db.prepare("UPDATE events SET hue = ? WHERE id = ?").run(hue, id);
+  return getEvent(id);
+}
+
+/** Set/clear the multi-day span (last day inclusive; null = single day). */
+export function updateEventEndDate(
+  id: number,
+  end_date: string | null,
+): CalendarEvent | null {
+  db.prepare("UPDATE events SET end_date = ? WHERE id = ?").run(end_date, id);
+  return getEvent(id);
+}
+
+export function updateEventStatus(
+  id: number,
+  status: "pending" | "confirmed" | null,
+): CalendarEvent | null {
+  db.prepare("UPDATE events SET status = ? WHERE id = ?").run(status, id);
+  const row = db.prepare("SELECT * FROM events WHERE id = ?").get(id) as
+    | EventRow
+    | undefined;
+  return row ? rowToEvent(row) : null;
+}
+
+export function updateEventTimes(
+  id: number,
+  start_time: string | null,
+  end_time: string | null,
+  date?: string,
+): CalendarEvent | null {
+  db.prepare(
+    "UPDATE events SET start_time = ?, end_time = ?, date = COALESCE(?, date) WHERE id = ?",
+  ).run(start_time, end_time, date ?? null, id);
+  return getEvent(id);
+}
+
+export function getEvent(id: number): CalendarEvent | null {
+  const row = db.prepare("SELECT * FROM events WHERE id = ?").get(id) as
+    | EventRow
+    | undefined;
+  return row ? rowToEvent(row) : null;
+}
+
 export function deleteEvent(id: number): boolean {
   return db.prepare("DELETE FROM events WHERE id = ?").run(id).changes > 0;
+}
+
+export function deleteTaskEvents(itemId: number): number {
+  return db
+    .prepare("DELETE FROM events WHERE source = 'task' AND item_id = ?")
+    .run(itemId).changes;
 }
 
 // Sync helper: replace all events from an external source within a date
@@ -429,18 +631,42 @@ export function replaceSourceEvents(
   source: string,
   from: string,
   to: string,
-  events: Omit<CalendarEvent, "id" | "source">[],
+  events: {
+    date: string;
+    start_time: string | null;
+    end_time: string | null;
+    title: string;
+    deeplink: string | null;
+    external_id?: string | null;
+    location?: string | null;
+    description?: string | null;
+    attendees?: CalendarEvent["attendees"];
+  }[],
 ): number {
   const del = db.prepare(
     "DELETE FROM events WHERE source = ? AND date BETWEEN ? AND ?",
   );
   const ins = db.prepare(
-    "INSERT INTO events (date, start_time, end_time, title, source, deeplink) VALUES (?, ?, ?, ?, ?, ?)",
+    `INSERT INTO events
+     (date, start_time, end_time, title, source, deeplink, external_id,
+      location, description, attendees)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   db.transaction(() => {
     del.run(source, from, to);
     for (const e of events) {
-      ins.run(e.date, e.start_time, e.end_time, e.title, source, e.deeplink);
+      ins.run(
+        e.date,
+        e.start_time,
+        e.end_time,
+        e.title,
+        source,
+        e.deeplink,
+        e.external_id ?? null,
+        e.location ?? null,
+        e.description ?? null,
+        e.attendees?.length ? JSON.stringify(e.attendees) : null,
+      );
     }
   })();
   return events.length;

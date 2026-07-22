@@ -21,8 +21,16 @@ export interface CalendarEvent {
   end_time: string | null; // HH:MM
   title: string;
   deeplink: string | null;
-  source?: string; // e.g. "google" — set when syncing from an external cal
-  external_id?: string; // stable id in the source system for upsert
+  source?: string;
+  external_id?: string;
+  location?: string | null;
+  description?: string | null;
+  attendees?: {
+    name: string | null;
+    email: string | null;
+    status: string | null;
+    self?: boolean;
+  }[];
 }
 
 export interface SleepEvent {
@@ -54,6 +62,8 @@ export interface SourceAdapter {
   fetchRecentRides?(days: number): Promise<RideEvent[]>;
   fetchUpcomingEvents?(days: number): Promise<CalendarEvent[]>;
   fetchEventsRange?(from: string, to: string): Promise<CalendarEvent[]>;
+  confirmEvent?(externalId: string): Promise<void>;
+  rejectEvent?(externalId: string): Promise<void>;
   fetchSleep?(from: string, to: string): Promise<SleepEvent[]>;
   fetchRecentMeals?(days: number): Promise<MealEvent[]>;
 }

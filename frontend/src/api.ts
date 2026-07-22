@@ -31,6 +31,9 @@ export const api = {
     due_date?: string | null;
     priority?: Priority;
     tags?: string[];
+    assignee?: string | null;
+    parent_id?: number | null;
+    kind?: "task" | "note";
   }) =>
     fetch("/api/items", {
       method: "POST",
@@ -45,6 +48,8 @@ export const api = {
       due_date?: string | null;
       priority?: Priority;
       tags?: string[];
+      assignee?: string | null;
+      parent_id?: number | null;
     },
   ) =>
     fetch(`/api/items/${id}`, {
@@ -56,18 +61,58 @@ export const api = {
     fetch(`/api/items/${id}/close`, { method: "POST" }).then((r) => j<CaughtItem>(r)),
   carryItem: (id: number) =>
     fetch(`/api/items/${id}/carry`, { method: "POST" }).then((r) => j<CaughtItem>(r)),
+  reopenItem: (id: number) =>
+    fetch(`/api/items/${id}/reopen`, { method: "POST" }).then((r) => j<CaughtItem>(r)),
+  unscheduleItem: (id: number) =>
+    fetch(`/api/items/${id}/schedule`, { method: "DELETE" }).then((r) =>
+      j<{ removed: number }>(r),
+    ),
   events: (date?: string) =>
     fetch(`/api/events${date ? `?date=${date}` : ""}`).then((r) => j<CalendarEvent[]>(r)),
   addEvent: (body: {
     date: string;
     start_time?: string | null;
     end_time?: string | null;
+    end_date?: string | null;
     title: string;
+    source?: string;
+    item_id?: number | null;
+    status?: "pending" | "confirmed" | null;
+    deeplink?: string | null;
   }) =>
     fetch("/api/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+    }).then((r) => j<CalendarEvent>(r)),
+  setEventStatus: (id: number, status: "pending" | "confirmed" | null) =>
+    fetch(`/api/events/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
+    }).then((r) => j<CalendarEvent>(r)),
+  setEventTimes: (
+    id: number,
+    start_time: string | null,
+    end_time: string | null,
+    date?: string,
+  ) =>
+    fetch(`/api/events/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ start_time, end_time, ...(date ? { date } : {}) }),
+    }).then((r) => j<CalendarEvent>(r)),
+  setEventEndDate: (id: number, end_date: string | null) =>
+    fetch(`/api/events/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ end_date }),
+    }).then((r) => j<CalendarEvent>(r)),
+  setEventHue: (id: number, hue: number | null) =>
+    fetch(`/api/events/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ hue }),
     }).then((r) => j<CalendarEvent>(r)),
   deleteEvent: (id: number) =>
     fetch(`/api/events/${id}`, { method: "DELETE" }).then((r) => j<{ ok: boolean }>(r)),

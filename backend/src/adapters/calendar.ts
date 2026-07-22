@@ -35,9 +35,39 @@ type GoogleEvent = {
   status?: string;
   summary?: string;
   htmlLink?: string;
+  eventType?: string;
+  location?: string;
+  description?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
+  attendees?: {
+    displayName?: string;
+    email?: string;
+    responseStatus?: string;
+    self?: boolean;
+  }[];
 };
+
+/** Google often sends HTML in description; keep the detail panel readable. */
+function plainText(html: string | undefined): string | null {
+  if (!html?.trim()) return null;
+  const text = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return text || null;
+}
+
+// Google emits pseudo-events for working location ("Office"), out-of-office
+// blocks, and focus time. They aren't meetings; keep them off the console.
+const SKIPPED_EVENT_TYPES = new Set(["workingLocation", "outOfOffice", "focusTime"]);
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const localDate = (d: Date) =>
@@ -65,12 +95,25 @@ async function fetchRange(timeMin: Date, timeMax: Date): Promise<CalendarEvent[]
   const out: CalendarEvent[] = [];
   for (const e of json.items ?? []) {
     if (e.status === "cancelled" || !e.start) continue;
+    if (e.eventType && SKIPPED_EVENT_TYPES.has(e.eventType)) continue;
     const title = e.summary?.trim() || "(untitled)";
+    // Fallback: working-location events sometimes omit eventType; titles are
+    // typically just "Office" / "Home" / "Elsewhere".
+    if (/^(office|home|elsewhere)$/i.test(title)) continue;
+    const attendees = (e.attendees ?? []).map((a) => ({
+      name: a.displayName?.trim() || null,
+      email: a.email ?? null,
+      status: a.responseStatus ?? null,
+      self: a.self === true,
+    }));
     const base = {
       title,
       deeplink: e.htmlLink ?? null,
       source: "google",
       external_id: e.id,
+      location: e.location?.trim() || null,
+      description: plainText(e.description),
+      attendees,
     };
     if (e.start.date) {
       // all-day
@@ -107,5 +150,26 @@ export const calendar: SourceAdapter = {
   },
   async fetchEventsRange(from: string, to: string): Promise<CalendarEvent[]> {
     return fetchRange(new Date(from + "T00:00:00"), new Date(to + "T23:59:59"));
+  },
+
+  // Called when the user hits ✓ on a real calendar event.
+  // Google Calendar RSVP requires knowing which attendee is "me" and patching
+  // that attendee's `responseStatus` to "accepted". For a single-owner console
+  // this typically means: PATCH /events/{id} with attendees[].self.responseStatus.
+  // Left as a TODO — event status is stored locally either way, so this can
+  // be wired incrementally.
+  async confirmEvent(_externalId: string): Promise<void> {
+    // TODO: PATCH https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events/{externalId}
+    //   body: { attendees: [{ email: OWNER_EMAIL, responseStatus: "accepted" }] }
+    return;
+  },
+
+  // Called when the user hits ✗ on a real calendar event.
+  // For a "decline" (keep the event but mark you as not going), PATCH with
+  // responseStatus="declined". For a "delete the calendar entry" flow, use
+  // DELETE /events/{id}. Pick per your preference.
+  async rejectEvent(_externalId: string): Promise<void> {
+    // TODO: same PATCH as above with responseStatus="declined", or DELETE.
+    return;
   },
 };

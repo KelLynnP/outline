@@ -15,17 +15,25 @@ import {
   carryItem,
   closeItem,
   deleteEvent,
+  deleteTaskEvents,
+  getEvent,
   getOrEmptyStop,
   listAllItems,
+  updateEventEndDate,
+  updateEventHue,
+  updateEventStatus,
+  updateEventTimes,
   updateStopNotes,
   listEvents,
   listEventsRange,
   logSignal,
+  reopenItem,
   updateItem,
 } from "./queries.js";
 import { runCalendarSync, scheduleJobs } from "./synthesis.js";
 import { adapters } from "./adapters/index.js";
 import { heptabase } from "./adapters/heptabase.js";
+import { calendar } from "./adapters/calendar.js";
 import { backupDir, fetchOpenTodosFromBackup } from "./adapters/heptabase-backup.js";
 import { fileURLToPath } from "node:url";
 
@@ -58,9 +66,19 @@ app.post("/api/items", async (c) => {
     due_date?: string | null;
     priority?: 1 | 2 | 3;
     tags?: string[];
+    assignee?: string | null;
+    parent_id?: number | null;
+    kind?: "task" | "note";
   };
   if (!body?.text?.trim()) return c.json({ error: "text_required" }, 400);
-  return c.json(addItem(body));
+  try {
+    return c.json(addItem(body));
+  } catch (e) {
+    if (String(e).includes("parent_not_found")) {
+      return c.json({ error: "parent_not_found" }, 400);
+    }
+    throw e;
+  }
 });
 
 app.patch("/api/items/:id", async (c) => {
@@ -71,14 +89,27 @@ app.patch("/api/items/:id", async (c) => {
 });
 
 app.post("/api/items/:id/close", async (c) => {
-  const item = closeItem(Number(c.req.param("id")));
+  const id = Number(c.req.param("id"));
+  const item = closeItem(id);
   if (!item) return c.json({ error: "not_found" }, 404);
+  deleteTaskEvents(id); // a closed task shouldn't linger on the calendar
   if (heptabase.enabled() && heptabase.appendToTodayJournal) {
     heptabase
       .appendToTodayJournal(`✓ ${item.text} (captured ${item.captured_date})`)
       .catch((e) => console.error("append_to_journal", e));
   }
   return c.json(item);
+});
+
+app.post("/api/items/:id/reopen", (c) => {
+  const item = reopenItem(Number(c.req.param("id")));
+  if (!item) return c.json({ error: "not_found" }, 404);
+  return c.json(item);
+});
+
+// Remove a task's calendar block without touching the item itself.
+app.delete("/api/items/:id/schedule", (c) => {
+  return c.json({ removed: deleteTaskEvents(Number(c.req.param("id"))) });
 });
 
 app.post("/api/items/:id/carry", (c) => {
@@ -110,16 +141,90 @@ app.post("/api/events", async (c) => {
     date: string;
     start_time?: string | null;
     end_time?: string | null;
+    end_date?: string | null;
     title: string;
+    source?: string;
+    item_id?: number | null;
+    status?: "pending" | "confirmed" | null;
+    deeplink?: string | null;
+    external_id?: string | null;
   };
   if (!body?.title?.trim() || !body?.date) {
     return c.json({ error: "date_and_title_required" }, 400);
   }
+  // A task has at most one scheduled block: re-dropping moves it.
+  if (body.source === "task" && body.item_id) {
+    deleteTaskEvents(body.item_id);
+  }
   return c.json(addEvent(body));
 });
 
+app.patch("/api/events/:id", async (c) => {
+  const body = (await c.req.json()) as {
+    status?: "pending" | "confirmed" | null;
+    start_time?: string | null;
+    end_time?: string | null;
+    date?: string;
+    hue?: number | null;
+    end_date?: string | null;
+  };
+  const id = Number(c.req.param("id"));
+  const before = getEvent(id);
+  if (!before) return c.json({ error: "not_found" }, 404);
+  let updated = before;
+  if ("start_time" in body || "end_time" in body || "date" in body) {
+    updated = updateEventTimes(
+      id,
+      body.start_time !== undefined ? body.start_time : before.start_time,
+      body.end_time !== undefined ? body.end_time : before.end_time,
+      body.date,
+    )!;
+  }
+  if ("hue" in body) {
+    updated = updateEventHue(id, body.hue ?? null)!;
+  }
+  if ("end_date" in body) {
+    // Guard: span end can't precede its start day.
+    const start = body.date ?? before.date;
+    const end = body.end_date && body.end_date > start ? body.end_date : null;
+    updated = updateEventEndDate(id, end)!;
+  }
+  if (!("status" in body)) return c.json(updated);
+  const status = body.status ?? null;
+  updated = updateEventStatus(id, status)!;
+  if (
+    status === "confirmed" &&
+    before?.source &&
+    before.source !== "task" &&
+    before.source !== "manual" &&
+    before.external_id &&
+    calendar.enabled() &&
+    calendar.confirmEvent
+  ) {
+    calendar
+      .confirmEvent(before.external_id)
+      .catch((e) => console.error("calendar.confirmEvent", e));
+  }
+  return c.json(updated);
+});
+
 app.delete("/api/events/:id", (c) => {
-  const ok = deleteEvent(Number(c.req.param("id")));
+  const id = Number(c.req.param("id"));
+  const before = getEvent(id);
+  const ok = deleteEvent(id);
+  if (
+    ok &&
+    before?.source &&
+    before.source !== "task" &&
+    before.source !== "manual" &&
+    before.external_id &&
+    calendar.enabled() &&
+    calendar.rejectEvent
+  ) {
+    calendar
+      .rejectEvent(before.external_id)
+      .catch((e) => console.error("calendar.rejectEvent", e));
+  }
   return c.json({ ok });
 });
 
