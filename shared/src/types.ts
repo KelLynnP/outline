@@ -57,6 +57,28 @@ export interface CalendarEvent {
   end_date?: string | null;
 }
 
+export interface RoadmapLane {
+  id: number;
+  name: string;
+  position: number;
+}
+
+export interface RoadmapEntry {
+  id: number;
+  lane_id: number;
+  title: string;
+  kind: "span" | "milestone";
+  start_date: string; // YYYY-MM-DD
+  end_date: string | null; // inclusive; null for milestones
+  notes: string | null;
+  theme: string | null;
+  color: string;
+  row_position: number | null;
+  transparent: boolean;
+  opacity: number;
+  published: boolean;
+}
+
 export type SignalType = "meal" | "bike" | "ocean" | "sleep";
 
 export interface BodySignal {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CalendarEvent } from "@life-console/shared";
+import { localDateISO, type CalendarEvent } from "@life-console/shared";
 import { dayDropProps } from "../dnd.js";
 
 interface Props {
@@ -7,8 +7,6 @@ interface Props {
   onSelectDay: (iso: string) => void;
   onDropTask?: (itemId: number, date: string) => void;
 }
-
-const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export function MonthCalendar({ monthISO, onSelectDay, onDropTask }: Props) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -26,7 +24,7 @@ export function MonthCalendar({ monthISO, onSelectDay, onDropTask }: Props) {
     for (let i = 0; i < 42; i++) {
       const d = new Date(gridStart);
       d.setDate(gridStart.getDate() + i);
-      cells.push(iso(d));
+      cells.push(localDateISO(d));
     }
     return { cells, monthStart, monthEnd };
   }, [y, m]);
@@ -45,7 +43,7 @@ export function MonthCalendar({ monthISO, onSelectDay, onDropTask }: Props) {
     eventsByDate.set(e.date, arr);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const weekdayHeaders = ["S", "M", "T", "W", "T", "F", "S"];
 
   return (

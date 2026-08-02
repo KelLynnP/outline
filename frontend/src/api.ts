@@ -4,6 +4,8 @@ import type {
   CaughtItem,
   LineView,
   Priority,
+  RoadmapEntry,
+  RoadmapLane,
   Settings,
   Stop,
   TodayView,
@@ -116,6 +118,55 @@ export const api = {
     }).then((r) => j<CalendarEvent>(r)),
   deleteEvent: (id: number) =>
     fetch(`/api/events/${id}`, { method: "DELETE" }).then((r) => j<{ ok: boolean }>(r)),
+  roadmapLanes: () =>
+    fetch("/api/roadmap/lanes").then((r) => j<RoadmapLane[]>(r)),
+  addRoadmapLane: (body: { name: string }) =>
+    fetch("/api/roadmap/lanes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => j<RoadmapLane>(r)),
+  updateRoadmapLane: (
+    id: number,
+    patch: Partial<Pick<RoadmapLane, "name" | "position">>,
+  ) =>
+    fetch(`/api/roadmap/lanes/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => j<RoadmapLane>(r)),
+  deleteRoadmapLane: (id: number) =>
+    fetch(`/api/roadmap/lanes/${id}`, { method: "DELETE" }).then((r) =>
+      j<{ ok: boolean }>(r),
+    ),
+  roadmapEntries: (from: string, to: string) =>
+    fetch(`/api/roadmap/entries?from=${from}&to=${to}`).then((r) =>
+      j<RoadmapEntry[]>(r),
+    ),
+  addRoadmapEntry: (body: Omit<RoadmapEntry, "id">) =>
+    fetch("/api/roadmap/entries", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => j<RoadmapEntry>(r)),
+  updateRoadmapEntry: (id: number, patch: Partial<Omit<RoadmapEntry, "id">>) =>
+    fetch(`/api/roadmap/entries/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => j<RoadmapEntry>(r)),
+  deleteRoadmapEntry: (id: number) =>
+    fetch(`/api/roadmap/entries/${id}`, { method: "DELETE" }).then((r) =>
+      j<{ ok: boolean }>(r),
+    ),
+  publishRoadmap: (dryRun: boolean) =>
+    fetch("/api/roadmap/publish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dry_run: dryRun }),
+    }).then((r) =>
+      j<{ created: number; updated: number; deleted: number; dry_run: boolean }>(r),
+    ),
   logSignal: (body: {
     type: BodySignal["type"];
     timestamp?: string;

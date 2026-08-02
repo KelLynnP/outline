@@ -1,7 +1,8 @@
+import { localDateISO } from "@life-console/shared";
 import { db } from "./db.js";
 
 const today = new Date();
-const ymd = (d: Date) => d.toISOString().slice(0, 10);
+const ymd = localDateISO;
 const iso = (d: Date) => d.toISOString();
 const shift = (n: number) => {
   const d = new Date(today);

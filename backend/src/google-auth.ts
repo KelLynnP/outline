@@ -5,7 +5,10 @@
 // localhost, and prints the refresh token to paste into .env.
 import "./env.js";
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
 import { exec } from "node:child_process";
+import { REPO_ROOT } from "./paths.js";
 
 const clientId = process.env.GOOGLE_CLIENT_ID;
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -16,7 +19,16 @@ if (!clientId || !clientSecret) {
 
 const PORT = 43117;
 const redirectUri = `http://localhost:${PORT}`;
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const SCOPE = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events.owned",
+].join(" ");
+
+function setEnvValue(contents: string, key: string, value: string): string {
+  const line = new RegExp(`^${key}=.*$`, "m");
+  if (line.test(contents)) return contents.replace(line, `${key}=${value}`);
+  return `${contents}${contents.endsWith("\n") || !contents ? "" : "\n"}${key}=${value}\n`;
+}
 
 const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
 authUrl.searchParams.set("client_id", clientId);
@@ -49,9 +61,19 @@ const server = http.createServer(async (req, res) => {
     console.error("token exchange failed:", json);
     process.exit(1);
   }
-  res.end("done — you can close this tab and return to the terminal.");
-  console.log("\nAdd this to your .env:\n");
-  console.log(`GOOGLE_REFRESH_TOKEN=${json.refresh_token}\n`);
+  const envPath = path.join(REPO_ROOT, ".env");
+  const current = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
+  let next = setEnvValue(current, "GOOGLE_REFRESH_TOKEN", json.refresh_token);
+  if (process.env.GOOGLE_EXPORT_CALENDAR_ID) {
+    next = setEnvValue(
+      next,
+      "GOOGLE_EXPORT_CALENDAR_ID",
+      process.env.GOOGLE_EXPORT_CALENDAR_ID,
+    );
+  }
+  fs.writeFileSync(envPath, next);
+  res.end("done — the refresh token was updated in .env. You can close this tab.");
+  console.log("\nUpdated GOOGLE_REFRESH_TOKEN in .env.\n");
   server.close();
   process.exit(0);
 });

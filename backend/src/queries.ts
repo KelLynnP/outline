@@ -5,10 +5,13 @@ import type {
   DirectionSentence,
   LineView,
   Priority,
+  RoadmapEntry,
+  RoadmapLane,
   Settings,
   Stop,
   TodayView,
 } from "@life-console/shared";
+import { localDateISO, shiftDateISO } from "@life-console/shared";
 import { db } from "./db.js";
 import { readSettings } from "./settings.js";
 
@@ -51,6 +54,18 @@ type StopRow = {
   notes: string | null;
 };
 
+type RoadmapLaneRow = RoadmapLane;
+type RoadmapEntryRow = Omit<RoadmapEntry, "transparent" | "published"> & {
+  transparent: number;
+  published: number;
+};
+
+const rowToRoadmapEntry = (row: RoadmapEntryRow): RoadmapEntry => ({
+  ...row,
+  transparent: Boolean(row.transparent),
+  published: Boolean(row.published),
+});
+
 const rowToItem = (r: ItemRow): CaughtItem => ({
   id: r.id,
   text: r.text,
@@ -82,16 +97,13 @@ const rowToStop = (r: StopRow): Stop => ({
 });
 
 const iso = (d: Date) => d.toISOString();
-const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 export function todayISO() {
-  return ymd(new Date());
+  return localDateISO();
 }
 
 function shift(dateStr: string, days: number) {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return ymd(d);
+  return shiftDateISO(dateStr, days);
 }
 
 export function getLatestDirection(): DirectionSentence | null {
@@ -623,6 +635,169 @@ export function deleteTaskEvents(itemId: number): number {
   return db
     .prepare("DELETE FROM events WHERE source = 'task' AND item_id = ?")
     .run(itemId).changes;
+}
+
+export function listRoadmapLanes(): RoadmapLane[] {
+  return db
+    .prepare("SELECT * FROM roadmap_lanes ORDER BY position, id")
+    .all() as RoadmapLaneRow[];
+}
+
+export function addRoadmapLane(input: { name: string }): RoadmapLane {
+  const position = (
+    db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS value FROM roadmap_lanes").get() as {
+      value: number;
+    }
+  ).value;
+  const info = db
+    .prepare("INSERT INTO roadmap_lanes (name, position) VALUES (?, ?)")
+    .run(input.name.trim(), position);
+  return db
+    .prepare("SELECT * FROM roadmap_lanes WHERE id = ?")
+    .get(info.lastInsertRowid) as RoadmapLaneRow;
+}
+
+export function updateRoadmapLane(
+  id: number,
+  patch: Partial<Pick<RoadmapLane, "name" | "position">>,
+): RoadmapLane | null {
+  const current = db.prepare("SELECT * FROM roadmap_lanes WHERE id = ?").get(id) as
+    | RoadmapLaneRow
+    | undefined;
+  if (!current) return null;
+  db.prepare(
+    "UPDATE roadmap_lanes SET name = ?, position = ? WHERE id = ?",
+  ).run(
+    patch.name?.trim() || current.name,
+    patch.position ?? current.position,
+    id,
+  );
+  return db.prepare("SELECT * FROM roadmap_lanes WHERE id = ?").get(id) as RoadmapLaneRow;
+}
+
+export function deleteRoadmapLane(id: number): boolean {
+  return db.prepare("DELETE FROM roadmap_lanes WHERE id = ?").run(id).changes > 0;
+}
+
+export function listRoadmapEntries(from: string, to: string): RoadmapEntry[] {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM roadmap_entries
+         WHERE start_date <= ? AND COALESCE(end_date, start_date) >= ?
+         ORDER BY start_date, id`,
+      )
+      .all(to, from) as RoadmapEntryRow[]
+  ).map(rowToRoadmapEntry);
+}
+
+export function listPublishedRoadmapEntries(): RoadmapEntry[] {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM roadmap_entries
+         WHERE published = 1
+         ORDER BY start_date, id`,
+      )
+      .all() as RoadmapEntryRow[]
+  ).map(rowToRoadmapEntry);
+}
+
+export function addRoadmapEntry(input: {
+  lane_id: number;
+  title: string;
+  kind: "span" | "milestone";
+  start_date: string;
+  end_date?: string | null;
+  notes?: string | null;
+  theme?: string | null;
+  color?: string;
+  row_position?: number | null;
+  transparent?: boolean;
+  opacity?: number;
+  published?: boolean;
+}): RoadmapEntry {
+  const endDate =
+    input.kind === "span" && input.end_date && input.end_date >= input.start_date
+      ? input.end_date
+      : input.kind === "span"
+        ? input.start_date
+        : null;
+  const info = db
+    .prepare(
+      `INSERT INTO roadmap_entries
+       (lane_id, title, kind, start_date, end_date, notes, theme, color,
+        row_position, transparent, opacity, published)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.lane_id,
+      input.title.trim(),
+      input.kind,
+      input.start_date,
+      endDate,
+      input.notes?.trim() || null,
+      input.theme?.trim() || null,
+      input.color ?? "#547a68",
+      input.row_position ?? null,
+      Number(input.transparent ?? false),
+      Math.max(0.1, Math.min(1, input.opacity ?? 1)),
+      Number(input.published ?? false),
+    );
+  return rowToRoadmapEntry(
+    db
+      .prepare("SELECT * FROM roadmap_entries WHERE id = ?")
+      .get(info.lastInsertRowid) as RoadmapEntryRow,
+  );
+}
+
+export function updateRoadmapEntry(
+  id: number,
+  patch: Partial<Omit<RoadmapEntry, "id">>,
+): RoadmapEntry | null {
+  const current = db.prepare("SELECT * FROM roadmap_entries WHERE id = ?").get(id) as
+    | RoadmapEntryRow
+    | undefined;
+  if (!current) return null;
+  const kind = patch.kind ?? current.kind;
+  const startDate = patch.start_date ?? current.start_date;
+  const requestedEnd = patch.end_date !== undefined ? patch.end_date : current.end_date;
+  const endDate =
+    kind === "span"
+      ? requestedEnd && requestedEnd >= startDate
+        ? requestedEnd
+        : startDate
+      : null;
+  db.prepare(
+    `UPDATE roadmap_entries
+     SET lane_id = ?, title = ?, kind = ?, start_date = ?, end_date = ?, notes = ?
+         , theme = ?, color = ?, row_position = ?, transparent = ?, opacity = ?
+         , published = ?
+     WHERE id = ?`,
+  ).run(
+    patch.lane_id ?? current.lane_id,
+    patch.title?.trim() || current.title,
+    kind,
+    startDate,
+    endDate,
+    patch.notes !== undefined ? patch.notes?.trim() || null : current.notes,
+    patch.theme !== undefined ? patch.theme?.trim() || null : current.theme,
+    patch.color ?? current.color,
+    patch.row_position !== undefined ? patch.row_position : current.row_position,
+    patch.transparent !== undefined ? Number(patch.transparent) : current.transparent,
+    patch.opacity !== undefined
+      ? Math.max(0.1, Math.min(1, patch.opacity))
+      : current.opacity,
+    patch.published !== undefined ? Number(patch.published) : current.published,
+    id,
+  );
+  return rowToRoadmapEntry(
+    db.prepare("SELECT * FROM roadmap_entries WHERE id = ?").get(id) as RoadmapEntryRow,
+  );
+}
+
+export function deleteRoadmapEntry(id: number): boolean {
+  return db.prepare("DELETE FROM roadmap_entries WHERE id = ?").run(id).changes > 0;
 }
 
 // Sync helper: replace all events from an external source within a date

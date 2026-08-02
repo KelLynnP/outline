@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CaughtItem, LineView, Settings, TodayView } from "@life-console/shared";
+import {
+  localDateISO,
+  type CaughtItem,
+  type LineView,
+  type Settings,
+  type TodayView,
+} from "@life-console/shared";
 import { api } from "../api.js";
 import { TimelineV2 } from "../components/TimelineV2.js";
 import { DailyCalendar } from "../components/DailyCalendar.js";
 import { WeekCalendar } from "../components/WeekCalendar.js";
 import { MonthCalendar } from "../components/MonthCalendar.js";
-import { DayDots } from "../components/DayDots.js";
+import { Roadmap } from "../components/Roadmap.js";
 import { DayNotes } from "../components/DayNotes.js";
 import { TaskTable } from "../components/Tasks.js";
 import { useToggle } from "../useToggle.js";
@@ -13,7 +19,7 @@ import { useToggle } from "../useToggle.js";
 type ViewMode = "day" | "week" | "month";
 
 const DAY_MS = 86_400_000;
-const iso = (d: Date) => d.toISOString().slice(0, 10);
+const iso = localDateISO;
 
 function mondayOf(dateISO: string): string {
   const d = new Date(dateISO + "T00:00:00");
@@ -29,7 +35,7 @@ export function Opt3Page() {
   const [items, setItems] = useState<CaughtItem[]>([]);
   const [view, setView] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState<string>(() =>
-    new Date().toISOString().slice(0, 10),
+    localDateISO(),
   );
   const [tasksOpen, toggleTasksSection] = useToggle("opt3.tasksOpen", true);
   // Bumped on every page-level reload so the calendars refetch their events
@@ -105,7 +111,7 @@ export function Opt3Page() {
     next.setDate(next.getDate() + days);
     setSelectedDate(iso(next));
   };
-  const jumpToday = () => setSelectedDate(new Date().toISOString().slice(0, 10));
+  const jumpToday = () => setSelectedDate(localDateISO());
 
   const anchor = new Date(selectedDate + "T00:00:00");
   // The range the page is currently showing; the timeline highlights it.
@@ -252,12 +258,7 @@ export function Opt3Page() {
               />
             )}
 
-            <DayDots
-              selectedISO={selectedDate}
-              onSelect={setSelectedDate}
-              onDropTask={assignTaskToDay}
-              refreshKey={calVersion}
-            />
+            <Roadmap selectedISO={selectedDate} />
           </div>
         </div>
 

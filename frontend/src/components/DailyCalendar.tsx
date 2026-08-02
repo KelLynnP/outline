@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CalendarEvent } from "@life-console/shared";
+import { localDateISO, type CalendarEvent } from "@life-console/shared";
 import { api } from "../api.js";
 import {
   EVENT_MIME,
@@ -171,7 +171,7 @@ export function DailyCalendar({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const isToday = date === new Date().toISOString().slice(0, 10);
+    const isToday = date === localDateISO();
     const target = isToday ? Math.max(hourStart, nowHour() - 1.5) : 8;
     el.scrollTop = (target - hourStart) * hourPx;
   }, [date]);
@@ -261,7 +261,7 @@ export function DailyCalendar({
 
   const totalHours = hourEnd - hourStart;
   const trackHeight = totalHours * hourPx;
-  const today = date === new Date().toISOString().slice(0, 10);
+  const today = date === localDateISO();
   const nowY = today ? (nowHour() - hourStart) * hourPx : null;
 
   // Visibility toggles (persisted).

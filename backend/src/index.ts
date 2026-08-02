@@ -10,11 +10,15 @@ import { readSettings, writeSettings } from "./settings.js";
 import {
   addEvent,
   addItem,
+  addRoadmapEntry,
+  addRoadmapLane,
   buildLineView,
   buildTodayView,
   carryItem,
   closeItem,
   deleteEvent,
+  deleteRoadmapEntry,
+  deleteRoadmapLane,
   deleteTaskEvents,
   getEvent,
   getOrEmptyStop,
@@ -26,9 +30,15 @@ import {
   updateStopNotes,
   listEvents,
   listEventsRange,
+  listRoadmapEntries,
+  listRoadmapLanes,
+  listPublishedRoadmapEntries,
   logSignal,
   reopenItem,
+  todayISO,
   updateItem,
+  updateRoadmapEntry,
+  updateRoadmapLane,
 } from "./queries.js";
 import { runCalendarSync, scheduleJobs } from "./synthesis.js";
 import { adapters } from "./adapters/index.js";
@@ -133,7 +143,7 @@ app.get("/api/events", (c) => {
   const from = c.req.query("from");
   const to = c.req.query("to");
   if (from && to) return c.json(listEventsRange(from, to));
-  return c.json(listEvents(date ?? new Date().toISOString().slice(0, 10)));
+  return c.json(listEvents(date ?? todayISO()));
 });
 
 app.post("/api/events", async (c) => {
@@ -226,6 +236,80 @@ app.delete("/api/events/:id", (c) => {
       .catch((e) => console.error("calendar.rejectEvent", e));
   }
   return c.json({ ok });
+});
+
+app.get("/api/roadmap/lanes", (c) => c.json(listRoadmapLanes()));
+
+app.post("/api/roadmap/lanes", async (c) => {
+  const body = (await c.req.json()) as { name: string };
+  if (!body?.name?.trim()) return c.json({ error: "name_required" }, 400);
+  return c.json(addRoadmapLane(body));
+});
+
+app.patch("/api/roadmap/lanes/:id", async (c) => {
+  const lane = updateRoadmapLane(Number(c.req.param("id")), await c.req.json());
+  return lane ? c.json(lane) : c.json({ error: "not_found" }, 404);
+});
+
+app.delete("/api/roadmap/lanes/:id", (c) =>
+  c.json({ ok: deleteRoadmapLane(Number(c.req.param("id"))) }),
+);
+
+app.get("/api/roadmap/entries", (c) => {
+  const today = todayISO();
+  return c.json(
+    listRoadmapEntries(c.req.query("from") ?? today, c.req.query("to") ?? today),
+  );
+});
+
+app.post("/api/roadmap/entries", async (c) => {
+  const body = (await c.req.json()) as {
+    lane_id: number;
+    title: string;
+    kind: "span" | "milestone";
+    start_date: string;
+    end_date?: string | null;
+    notes?: string | null;
+    theme?: string | null;
+    color?: string;
+    row_position?: number | null;
+    transparent?: boolean;
+    opacity?: number;
+    published?: boolean;
+  };
+  if (
+    !body?.title?.trim() ||
+    !body.start_date ||
+    !body.lane_id ||
+    !["span", "milestone"].includes(body.kind)
+  ) {
+    return c.json({ error: "lane_title_kind_and_start_required" }, 400);
+  }
+  return c.json(addRoadmapEntry(body));
+});
+
+app.patch("/api/roadmap/entries/:id", async (c) => {
+  const entry = updateRoadmapEntry(Number(c.req.param("id")), await c.req.json());
+  return entry ? c.json(entry) : c.json({ error: "not_found" }, 404);
+});
+
+app.delete("/api/roadmap/entries/:id", (c) =>
+  c.json({ ok: deleteRoadmapEntry(Number(c.req.param("id"))) }),
+);
+
+app.post("/api/roadmap/publish", async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { dry_run?: boolean };
+    return c.json(
+      await calendar.publishRoadmap?.(
+        listPublishedRoadmapEntries(),
+        body.dry_run === true,
+      ),
+    );
+  } catch (e) {
+    console.error("roadmap_publish", e);
+    return c.json({ error: String(e) }, 500);
+  }
 });
 
 // On-demand pull of open todos from Heptabase (no storage yet — experiment).

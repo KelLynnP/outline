@@ -1,3 +1,5 @@
+import type { RoadmapEntry } from "@life-console/shared";
+
 export interface AdapterContext {
   now: Date;
 }
@@ -64,6 +66,10 @@ export interface SourceAdapter {
   fetchEventsRange?(from: string, to: string): Promise<CalendarEvent[]>;
   confirmEvent?(externalId: string): Promise<void>;
   rejectEvent?(externalId: string): Promise<void>;
+  publishRoadmap?(
+    entries: RoadmapEntry[],
+    dryRun: boolean,
+  ): Promise<{ created: number; updated: number; deleted: number; dry_run: boolean }>;
   fetchSleep?(from: string, to: string): Promise<SleepEvent[]>;
   fetchRecentMeals?(days: number): Promise<MealEvent[]>;
 }

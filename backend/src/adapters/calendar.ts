@@ -1,4 +1,5 @@
 import type { CalendarEvent, SourceAdapter } from "./types.js";
+import type { RoadmapEntry } from "@life-console/shared";
 import { readSettings } from "../settings.js";
 
 // Google Calendar via OAuth (read-only scope). LIVE — do not stub this out;
@@ -46,6 +47,9 @@ type GoogleEvent = {
     responseStatus?: string;
     self?: boolean;
   }[];
+  extendedProperties?: {
+    private?: Record<string, string>;
+  };
 };
 
 /** Google often sends HTML in description; keep the detail panel readable. */
@@ -132,6 +136,133 @@ async function fetchRange(timeMin: Date, timeMax: Date): Promise<CalendarEvent[]
   return out;
 }
 
+const EXPORT_SOURCE_KEY = "lifeConsoleSource";
+const EXPORT_SOURCE_VALUE = "roadmap";
+const EXPORT_ENTRY_KEY = "roadmapEntryId";
+
+const addDay = (date: string) => {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+};
+
+function roadmapPayload(entry: RoadmapEntry) {
+  return {
+    summary: entry.title,
+    start: { date: entry.start_date },
+    end: { date: addDay(entry.end_date ?? entry.start_date) },
+    extendedProperties: {
+      private: {
+        [EXPORT_SOURCE_KEY]: EXPORT_SOURCE_VALUE,
+        [EXPORT_ENTRY_KEY]: String(entry.id),
+      },
+    },
+  };
+}
+
+async function listPublishedEvents(
+  token: string,
+  calendarId: string,
+): Promise<GoogleEvent[]> {
+  const events: GoogleEvent[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+    );
+    url.searchParams.set(
+      "privateExtendedProperty",
+      `${EXPORT_SOURCE_KEY}=${EXPORT_SOURCE_VALUE}`,
+    );
+    url.searchParams.set("maxResults", "2500");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new Error(`google export fetch failed: ${res.status} ${await res.text()}`);
+    }
+    const body = (await res.json()) as {
+      items?: GoogleEvent[];
+      nextPageToken?: string;
+    };
+    events.push(...(body.items ?? []));
+    pageToken = body.nextPageToken;
+  } while (pageToken);
+  return events;
+}
+
+async function publishRoadmap(entries: RoadmapEntry[], dryRun: boolean) {
+  const calendarId = process.env.GOOGLE_EXPORT_CALENDAR_ID;
+  if (!calendarId) throw new Error("GOOGLE_EXPORT_CALENDAR_ID is not set");
+  const token = await getAccessToken();
+  const remote = await listPublishedEvents(token, calendarId);
+  const byEntryId = new Map<string, GoogleEvent[]>();
+  for (const event of remote) {
+    const entryId = event.extendedProperties?.private?.[EXPORT_ENTRY_KEY];
+    if (!entryId) continue;
+    byEntryId.set(entryId, [...(byEntryId.get(entryId) ?? []), event]);
+  }
+
+  const creates: RoadmapEntry[] = [];
+  const updates: { entry: RoadmapEntry; event: GoogleEvent }[] = [];
+  const deletes: GoogleEvent[] = [];
+  for (const entry of entries) {
+    const matches = byEntryId.get(String(entry.id)) ?? [];
+    const event = matches.shift();
+    if (!event) {
+      creates.push(entry);
+    } else {
+      const desired = roadmapPayload(entry);
+      if (
+        event.summary !== desired.summary ||
+        event.start?.date !== desired.start.date ||
+        event.end?.date !== desired.end.date
+      ) {
+        updates.push({ entry, event });
+      }
+    }
+    deletes.push(...matches);
+    byEntryId.delete(String(entry.id));
+  }
+  for (const leftovers of byEntryId.values()) deletes.push(...leftovers);
+
+  const result = {
+    created: creates.length,
+    updated: updates.length,
+    deleted: deletes.length,
+    dry_run: dryRun,
+  };
+  if (dryRun) return result;
+
+  const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+  const write = async (url: string, method: string, body?: unknown) => {
+    const target = new URL(url);
+    target.searchParams.set("sendUpdates", "none");
+    const res = await fetch(target, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      throw new Error(`google export ${method} failed: ${res.status} ${await res.text()}`);
+    }
+  };
+  for (const entry of creates) await write(base, "POST", roadmapPayload(entry));
+  for (const { entry, event } of updates) {
+    if (event.id) {
+      await write(`${base}/${encodeURIComponent(event.id)}`, "PATCH", roadmapPayload(entry));
+    }
+  }
+  for (const event of deletes) {
+    if (event.id) await write(`${base}/${encodeURIComponent(event.id)}`, "DELETE");
+  }
+  return result;
+}
+
 export const calendar: SourceAdapter = {
   name: "calendar",
   enabled() {
@@ -151,6 +282,8 @@ export const calendar: SourceAdapter = {
   async fetchEventsRange(from: string, to: string): Promise<CalendarEvent[]> {
     return fetchRange(new Date(from + "T00:00:00"), new Date(to + "T23:59:59"));
   },
+
+  publishRoadmap,
 
   // Called when the user hits ✓ on a real calendar event.
   // Google Calendar RSVP requires knowing which attendee is "me" and patching

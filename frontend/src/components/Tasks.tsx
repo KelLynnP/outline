@@ -1,5 +1,10 @@
 import { useRef, useState } from "react";
-import type { CaughtItem, Priority, Settings } from "@life-console/shared";
+import {
+  localDateISO,
+  type CaughtItem,
+  type Priority,
+  type Settings,
+} from "@life-console/shared";
 import { api } from "../api.js";
 import { taskDragProps, taskDropProps } from "../dnd.js";
 import { fmt12 } from "../time.js";
@@ -201,7 +206,7 @@ export function TaskTable({
   /** Drop a task on "today's tasks" to put it on today's calendar. */
   scheduleToday?: (itemId: number) => void | Promise<void>;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const open = items.filter((i) => i.status !== "closed");
   // Archived notes just disappear; only real tasks show in "done".
   const done = items
@@ -459,7 +464,7 @@ function Row({
   const [editTags, setEditTags] = useState<string | null>(null);
   const [editWho, setEditWho] = useState<string | null>(null);
   const dateRef = useRef<HTMLInputElement>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
   const overdue = !done && item.due_date && item.due_date < today;
   // Show every tag on the row (multiple tags); only hide the group key.
   const extraTags = item.tags.filter((t) => t !== hideTag);

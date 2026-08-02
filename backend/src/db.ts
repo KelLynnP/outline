@@ -56,11 +56,46 @@ db.exec(`
     external_id TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS roadmap_lanes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#547a68',
+    position INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS roadmap_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lane_id INTEGER NOT NULL REFERENCES roadmap_lanes(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('span', 'milestone')),
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    notes TEXT,
+    theme TEXT,
+    color TEXT NOT NULL DEFAULT '#547a68',
+    row_position INTEGER,
+    transparent INTEGER NOT NULL DEFAULT 0,
+    opacity REAL NOT NULL DEFAULT 1,
+    published INTEGER NOT NULL DEFAULT 0
+  );
+
   CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
   CREATE INDEX IF NOT EXISTS idx_items_due ON items(due_date);
   CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(timestamp);
   CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
+  CREATE INDEX IF NOT EXISTS idx_roadmap_entries_dates
+    ON roadmap_entries(start_date, end_date);
 `);
+
+if (
+  !(db.prepare("SELECT id FROM roadmap_lanes LIMIT 1").get() as
+    | { id: number }
+    | undefined)
+) {
+  db.prepare(
+    "INSERT INTO roadmap_lanes (name, color, position) VALUES (?, ?, 0)",
+  ).run("Focus", "#547a68");
+}
 
 function ensureColumn(table: string, column: string, ddl: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
@@ -82,3 +117,25 @@ ensureColumn("events", "description", "description TEXT");
 ensureColumn("events", "attendees", "attendees TEXT");
 ensureColumn("events", "hue", "hue INTEGER"); // user-picked color for manual events
 ensureColumn("events", "end_date", "end_date TEXT"); // multi-day span (all-day events)
+ensureColumn("roadmap_entries", "theme", "theme TEXT");
+ensureColumn(
+  "roadmap_entries",
+  "color",
+  "color TEXT NOT NULL DEFAULT '#547a68'",
+);
+ensureColumn("roadmap_entries", "row_position", "row_position INTEGER");
+ensureColumn(
+  "roadmap_entries",
+  "transparent",
+  "transparent INTEGER NOT NULL DEFAULT 0",
+);
+ensureColumn(
+  "roadmap_entries",
+  "opacity",
+  "opacity REAL NOT NULL DEFAULT 1",
+);
+ensureColumn(
+  "roadmap_entries",
+  "published",
+  "published INTEGER NOT NULL DEFAULT 0",
+);

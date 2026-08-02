@@ -131,17 +131,18 @@ export function TimelineV2({
 
           {allDays.map((d) => {
             const wd = parse(d).getDay();
-            if (wd !== 1) return null;
+            const isMonday = wd === 1;
             return (
               <text
-                key={`wk-${d}`}
+                key={`day-${d}`}
                 x={x(d)}
-                y={trackY + 38}
+                y={trackY + 25}
                 textAnchor="middle"
-                fontSize={11}
-                fill="var(--tl-muted)"
-                fontFamily="var(--display)"
-                letterSpacing={0.5}
+                fontSize={isMonday ? 10 : 9}
+                fontWeight={isMonday ? 700 : 400}
+                fill={isMonday ? "var(--tl-ink)" : "var(--tl-muted)"}
+                fontFamily="var(--mono)"
+                opacity={isMonday ? 0.9 : 0.65}
               >
                 {parse(d).getDate()}
               </text>
@@ -169,18 +170,21 @@ export function TimelineV2({
             opacity={0.55}
           />
 
-          {allDays.map((d) => (
-            <line
-              key={`t-${d}`}
-              x1={x(d)}
-              x2={x(d)}
-              y1={trackY - 3}
-              y2={trackY + 3}
-              stroke="var(--tl-track)"
-              strokeWidth={1}
-              opacity={0.35}
-            />
-          ))}
+          {allDays.map((d) => {
+            const isMonday = parse(d).getDay() === 1;
+            return (
+              <line
+                key={`t-${d}`}
+                x1={x(d)}
+                x2={x(d)}
+                y1={trackY - (isMonday ? 6 : 4)}
+                y2={trackY + (isMonday ? 9 : 6)}
+                stroke="var(--tl-track)"
+                strokeWidth={isMonday ? 1.5 : 1}
+                opacity={isMonday ? 0.65 : 0.35}
+              />
+            );
+          })}
 
           {allDays.map((d) => {
             if (!dotSet.has(d)) return null;
@@ -274,14 +278,18 @@ export function TimelineV2({
         {/* invisible per-day hit slots for click + drop */}
         <div className="tlv2-slots" aria-hidden={onSelectDate ? "false" : "true"}>
           {allDays.map((d) => {
-            const leftPct = (daysBetween(start, parse(d)) / total) * 100;
-            const widthPct = 100 / (total + 1);
+            const centerPct = (daysBetween(start, parse(d)) / total) * 100;
+            const widthPct = 100 / total;
             const isSpecial = stopSet.has(d) || dotSet.has(d) || d === line.today;
             return (
               <div
                 key={`slot-${d}`}
                 className="tlv2-slot"
-                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                style={{
+                  left: `${centerPct}%`,
+                  width: `${widthPct}%`,
+                  transform: "translateX(-50%)",
+                }}
                 data-date={d}
                 onMouseEnter={() => setHovered(d)}
                 onMouseLeave={() => setHovered((h) => (h === d ? null : h))}

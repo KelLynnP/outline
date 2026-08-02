@@ -1,4 +1,5 @@
 import cron from "node-cron";
+import { shiftDateISO } from "@life-console/shared";
 import { heptabase, generateDirectionSentence } from "./adapters/heptabase.js";
 import { calendar } from "./adapters/calendar.js";
 import {
@@ -14,7 +15,7 @@ import {
 export async function runNightlyStopSummaries() {
   if (!heptabase.enabled() || !heptabase.fetchJournalRange) return;
   const to = todayISO();
-  const from = new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10);
+  const from = shiftDateISO(to, -14);
   const days = await heptabase.fetchJournalRange(from, to);
   for (const d of days) {
     upsertStop({
@@ -42,7 +43,7 @@ export async function runCalendarSync(days = 14): Promise<number> {
   if (!calendar.enabled() || !calendar.fetchEventsRange) return 0;
   // Full days from local midnight so today's earlier events survive re-syncs.
   const from = todayISO();
-  const to = new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10);
+  const to = shiftDateISO(from, days);
   const events = await calendar.fetchEventsRange(from, to);
   // Google returns multi-day events that *started* before the window; keep
   // only rows dated inside it, since rows outside never get replaced.

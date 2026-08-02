@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CalendarEvent } from "@life-console/shared";
+import { localDateISO, type CalendarEvent } from "@life-console/shared";
 import { api } from "../api.js";
 import {
   EVENT_MIME,
@@ -32,9 +32,6 @@ interface Props {
   refreshKey?: unknown;
 }
 
-const DAY_MS = 86_400_000;
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-
 function parseTime(t: string | null): number | null {
   if (!t) return null;
   const [h, m] = t.split(":").map(Number);
@@ -66,9 +63,11 @@ export function WeekCalendar({
 
   const days = useMemo(() => {
     const start = new Date(weekStartISO + "T00:00:00");
-    const all = Array.from({ length: 7 }).map((_, i) =>
-      iso(new Date(start.getTime() + i * DAY_MS)),
-    );
+    const all = Array.from({ length: 7 }).map((_, i) => {
+      const day = new Date(start);
+      day.setDate(start.getDate() + i);
+      return localDateISO(day);
+    });
     return weekend ? all : all.slice(0, 5); // Monday-start week: drop Sat+Sun
   }, [weekStartISO, weekend]);
 
@@ -84,7 +83,7 @@ export function WeekCalendar({
   const hourPx = 22;
   const totalHours = hourEnd - hourStart;
   const trackHeight = totalHours * hourPx;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateISO();
 
   const cols = { gridTemplateColumns: `34px repeat(${days.length}, 1fr)` };
 
