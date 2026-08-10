@@ -37,7 +37,8 @@ async function gql<T>(
 
 const ISSUE_FIELDS = `id identifier title description url dueDate priority
         team { key }
-        assignee { displayName }`;
+        assignee { displayName }
+        state { name }`;
 
 const ISSUES_QUERY = `
   query Issues($filter: IssueFilter, $after: String) {
@@ -58,6 +59,7 @@ type IssueNode = {
   priority: number | null;
   team: { key: string } | null;
   assignee: { displayName: string } | null;
+  state: { name: string } | null;
 };
 
 const nodeToIssue = (n: IssueNode): LinearIssue => ({
@@ -70,6 +72,7 @@ const nodeToIssue = (n: IssueNode): LinearIssue => ({
   due_date: n.dueDate,
   priority: n.priority ?? 0,
   url: n.url,
+  state: n.state?.name ?? null,
 });
 
 // Teams + active members, for the send-to-Linear modal.
@@ -132,11 +135,11 @@ export async function createLinearIssue(input: {
 }
 
 // Move an issue to its team's first state of the given type. Used to push a
-// local check-off ("completed") or reopen ("unstarted") back to Linear so the
-// next sync doesn't undo it.
+// local check-off ("completed"), reopen ("unstarted"), or the detail modal's
+// backlog / todo / in-progress buttons — so the next sync doesn't undo it.
 export async function setLinearIssueState(
   externalId: string,
-  type: "completed" | "unstarted",
+  type: "backlog" | "unstarted" | "started" | "completed",
 ): Promise<void> {
   const data = await gql<{
     issue: {
@@ -175,7 +178,14 @@ export const linear: SourceAdapter = {
       state: { type: { nin: ["completed", "canceled"] } },
     };
     if (scope.teams.length) filter.team = { key: { in: scope.teams } };
-    if (scope.assigned_only) filter.assignee = { isMe: { eq: true } };
+    // "mine": on my plate, or tickets I sent to someone else (so issues
+    // created here for teammates stay visible and update as they complete).
+    if (scope.assigned_only) {
+      filter.or = [
+        { assignee: { isMe: { eq: true } } },
+        { creator: { isMe: { eq: true } } },
+      ];
+    }
 
     const out: LinearIssue[] = [];
     let after: string | null = null;

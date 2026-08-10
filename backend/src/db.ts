@@ -120,6 +120,7 @@ ensureColumn("items", "source", "source TEXT NOT NULL DEFAULT 'manual'"); // man
 ensureColumn("items", "external_id", "external_id TEXT"); // linear issue UUID (sync upsert key)
 ensureColumn("items", "linear_identifier", "linear_identifier TEXT"); // "NON-123"
 ensureColumn("items", "linear_team", "linear_team TEXT"); // team key
+ensureColumn("items", "linear_state", "linear_state TEXT"); // workflow state name
 ensureColumn("stops", "notes", "notes TEXT");
 ensureColumn("events", "item_id", "item_id INTEGER");
 ensureColumn("events", "status", "status TEXT");

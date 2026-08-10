@@ -3154,6 +3154,12 @@ button.tog.on {
   align-items: center;
   gap: 6px;
 }
+.task-detail-states {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
 .linear-modal-title .linear-chip {
   display: inline-flex;
   align-items: center;

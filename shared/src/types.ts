@@ -29,6 +29,7 @@ export interface CaughtItem {
   external_id: string | null; // Linear issue UUID (upsert key)
   linear_identifier: string | null; // "NON-123"
   linear_team: string | null; // team key, for the team filter
+  linear_state: string | null; // workflow state name ("Backlog", "In Progress")
   // Set when a "task" calendar event exists for this item (see listAllItems).
   scheduled_date?: string | null; // YYYY-MM-DD
   scheduled_time?: string | null; // HH:MM

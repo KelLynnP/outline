@@ -12,6 +12,15 @@ import { fmt12 } from "../time.js";
 import { useToggle } from "../useToggle.js";
 import { tagColors } from "../colors.js";
 
+/** Close modals on Escape (clicking the overlay already closes them). */
+function useEscape(onClose: () => void) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [onClose]);
+}
+
 interface Props {
   settings: Settings;
   onCreated: () => void;
@@ -859,7 +868,13 @@ function Row({
     )}
     {sendingToLinear && (
       <LinearSendModal
-        item={item}
+        draft={{
+          text: item.text,
+          description: item.description,
+          due_date: item.due_date,
+          priority: item.priority,
+        }}
+        itemId={item.id}
         onDone={() => {
           setSendingToLinear(false);
           onChange();
@@ -897,6 +912,8 @@ function TaskDetailModal({
   const [title, setTitle] = useState(item.text);
   const [description, setDescription] = useState(item.description ?? "");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEscape(onClose);
   const dirty =
     !isLinear &&
     (title.trim() !== item.text ||
@@ -937,6 +954,7 @@ function TaskDetailModal({
             </a>
           )}
         </div>
+        {error && <div className="linear-modal-error">{error}</div>}
         {isLinear ? (
           <>
             <div className="linear-modal-task">{item.text}</div>
@@ -946,6 +964,40 @@ function TaskDetailModal({
               <div className="quiet">no description</div>
             )}
             <div className="quiet">synced from Linear — edit title/description there.</div>
+            {item.status !== "closed" && (
+              <div className="task-detail-states">
+                <span className="quiet">
+                  {item.linear_state ?? "state"} → move to:
+                </span>
+                {(
+                  [
+                    ["backlog", "backlog"],
+                    ["unstarted", "todo"],
+                    ["started", "in progress"],
+                  ] as const
+                ).map(([type, label]) => (
+                  <button
+                    key={type}
+                    className="tog"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError(null);
+                      try {
+                        await api.setLinearState(item.id, type);
+                        onChange();
+                      } catch (e) {
+                        setError(String(e));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -979,6 +1031,7 @@ function TaskDetailModal({
           )}
           {item.tag === "#c!" && <span className="due-chip overdue">urgent</span>}
           {item.linear_team && <span className="tag-chip">{item.linear_team}</span>}
+          {item.linear_state && <span className="tag-chip">{item.linear_state}</span>}
           {item.assignee && <span className="tag-chip">@{item.assignee}</span>}
           {item.due_date && (
             <span className="due-chip later">due {shortDate(item.due_date)}</span>
@@ -1013,9 +1066,10 @@ function TaskDetailModal({
 }
 
 /* ------------------------------------------------------------------ */
-/* LinearSendModal: convert a local task into a Linear issue.          */
-/* Title + due date carry over from the task; team/assignee/priority/  */
-/* description are the extra Linear-side fields.                       */
+/* LinearSendModal: create a Linear issue from a draft — either        */
+/* converting an existing task (itemId set) or a brand-new issue from  */
+/* the composer, e.g. for a teammate. Title + due date carry over;     */
+/* team/assignee/priority/description are the Linear-side fields.      */
 /* ------------------------------------------------------------------ */
 
 const LINEAR_PRIORITIES: [number, string][] = [
@@ -1026,12 +1080,21 @@ const LINEAR_PRIORITIES: [number, string][] = [
   [0, "none"],
 ];
 
+type LinearDraft = {
+  text: string;
+  description: string | null;
+  due_date: string | null;
+  priority: Priority;
+};
+
 function LinearSendModal({
-  item,
+  draft,
+  itemId,
   onDone,
   onCancel,
 }: {
-  item: CaughtItem;
+  draft: LinearDraft;
+  itemId?: number; // set = convert this existing task
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -1039,10 +1102,11 @@ function LinearSendModal({
   const [teamId, setTeamId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
   // Default from the local P1-3: P1→high, P2→medium, P3→low.
-  const [priority, setPriority] = useState(item.priority + 1);
-  const [description, setDescription] = useState(item.description ?? "");
+  const [priority, setPriority] = useState(draft.priority + 1);
+  const [description, setDescription] = useState(draft.description ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  useEscape(onCancel);
 
   useEffect(() => {
     api
@@ -1059,12 +1123,23 @@ function LinearSendModal({
     if (!teamId || busy) return;
     setBusy(true);
     try {
-      await api.sendToLinear(item.id, {
-        team_id: teamId,
-        assignee_id: assigneeId || null,
-        priority,
-        description: description || null,
-      });
+      if (itemId != null) {
+        await api.sendToLinear(itemId, {
+          team_id: teamId,
+          assignee_id: assigneeId || null,
+          priority,
+          description: description || null,
+        });
+      } else {
+        await api.newLinearIssue({
+          team_id: teamId,
+          title: draft.text,
+          description: description || null,
+          assignee_id: assigneeId || null,
+          priority,
+          due_date: draft.due_date,
+        });
+      }
       onDone();
     } catch (e) {
       setError(String(e));
@@ -1080,8 +1155,10 @@ function LinearSendModal({
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="linear-modal-title">send to linear</div>
-        <div className="linear-modal-task">{item.text}</div>
+        <div className="linear-modal-title">
+          {itemId != null ? "send to linear" : "new linear issue"}
+        </div>
+        <div className="linear-modal-task">{draft.text}</div>
         {error && <div className="linear-modal-error">{error}</div>}
         <label>
           team
@@ -1129,8 +1206,8 @@ function LinearSendModal({
             onChange={(e) => setDescription(e.target.value)}
           />
         </label>
-        {item.due_date && (
-          <div className="quiet">due date ({shortDate(item.due_date)}) carries over</div>
+        {draft.due_date && (
+          <div className="quiet">due date ({shortDate(draft.due_date)}) carries over</div>
         )}
         <div className="linear-modal-actions">
           <button onClick={onCancel}>cancel</button>
@@ -1198,7 +1275,17 @@ function Composer({
   const [tagInput, setTagInput] = useState("");
   const [assignee, setAssignee] = useState("");
   const [urgent, setUrgent] = useState(false);
-  const [asNote, setAsNote] = useState(false);
+  const [linearOpen, setLinearOpen] = useState(false);
+
+  const clear = () => {
+    setText("");
+    setDescription("");
+    setDueDate("");
+    setPriority(2);
+    setTagInput("");
+    setAssignee("");
+    setUrgent(false);
+  };
 
   const submit = async () => {
     if (!text.trim()) return;
@@ -1216,35 +1303,21 @@ function Composer({
       priority,
       tags,
       assignee: who,
-      kind: asNote ? "note" : "task",
       description: description || null,
     });
-    setText("");
-    setDescription("");
-    setDueDate("");
-    setPriority(2);
-    setTagInput("");
-    setAssignee("");
-    setUrgent(false);
+    clear();
     onCreated();
   };
 
   return (
     <div className="tb-composer">
       <div className="tb-composer-row">
-        <button
-          className={`tog ${asNote ? "on" : ""}`}
-          title="note: freeform, no checkbox, never 'done'"
-          onClick={() => setAsNote(!asNote)}
-        >
-          note
-        </button>
         <input
           className="tb-composer-text"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder={asNote ? "something to keep in mind — enter to add" : "task title"}
+          placeholder="task title"
         />
       </div>
       <textarea
@@ -1290,10 +1363,36 @@ function Composer({
           !
         </button>
         <span className="tb-composer-spacer" />
+        {settings.sources.linear && (
+          <button
+            className="tb-add"
+            title="create this as a Linear issue (pick team + assignee)"
+            onClick={() => setLinearOpen(true)}
+            disabled={!text.trim()}
+          >
+            linear
+          </button>
+        )}
         <button className="tb-add" onClick={submit} disabled={!text.trim()}>
           add
         </button>
       </div>
+      {linearOpen && (
+        <LinearSendModal
+          draft={{
+            text: text.trim(),
+            description: description || null,
+            due_date: dueDate || null,
+            priority,
+          }}
+          onDone={() => {
+            setLinearOpen(false);
+            clear();
+            onCreated();
+          }}
+          onCancel={() => setLinearOpen(false)}
+        />
+      )}
     </div>
   );
 }

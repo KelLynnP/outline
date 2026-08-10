@@ -44,7 +44,7 @@ export interface Settings {
   // Linear sync scope (sources.linear must also be on).
   linear: {
     teams: string[]; // team keys to sync (e.g. ["NON"]); empty = all teams
-    assigned_only: boolean; // only issues assigned to me
+    assigned_only: boolean; // only issues assigned to me or created by me
   };
 }
 

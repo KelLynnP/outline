@@ -214,6 +214,61 @@ app.delete("/api/items/:id/linear", (c) => {
   return c.json(item);
 });
 
+// Move a linear row's issue to backlog / todo / in progress. Push upstream,
+// then re-sync so the local state name matches whatever Linear picked.
+app.post("/api/items/:id/linear-state", async (c) => {
+  const id = Number(c.req.param("id"));
+  const item = getItem(id);
+  if (!item) return c.json({ error: "not_found" }, 404);
+  if (item.source !== "linear" || !item.external_id) {
+    return c.json({ error: "not_linear" }, 400);
+  }
+  const { type } = (await c.req.json()) as {
+    type: "backlog" | "unstarted" | "started";
+  };
+  if (!["backlog", "unstarted", "started"].includes(type)) {
+    return c.json({ error: "bad_type" }, 400);
+  }
+  try {
+    await setLinearIssueState(item.external_id, type);
+    await runLinearSync();
+    return c.json(getItem(id));
+  } catch (e) {
+    console.error("linear_state", e);
+    return c.json({ error: String(e) }, 502);
+  }
+});
+
+// Create a brand-new Linear issue (e.g. for a teammate) and keep a local
+// linear row for it, so it shows on the board and updates as it completes.
+app.post("/api/linear/issues", async (c) => {
+  const body = (await c.req.json()) as {
+    team_id: string;
+    title: string;
+    description?: string | null;
+    assignee_id?: string | null;
+    priority?: number; // Linear scale 0-4
+    due_date?: string | null;
+  };
+  if (!body?.team_id) return c.json({ error: "team_required" }, 400);
+  if (!body?.title?.trim()) return c.json({ error: "title_required" }, 400);
+  try {
+    const issue = await createLinearIssue({
+      teamId: body.team_id,
+      title: body.title.trim(),
+      assigneeId: body.assignee_id,
+      priority: body.priority,
+      dueDate: body.due_date,
+      description: body.description,
+    });
+    const item = addItem({ text: issue.title });
+    return c.json(linkItemToLinear(item.id, issue));
+  } catch (e) {
+    console.error("linear_new_issue", e);
+    return c.json({ error: String(e) }, 502);
+  }
+});
+
 // Remove a task's calendar block without touching the item itself.
 app.delete("/api/items/:id/schedule", (c) => {
   return c.json({ removed: deleteTaskEvents(Number(c.req.param("id"))) });

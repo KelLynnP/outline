@@ -56,6 +56,7 @@ export interface LinearIssue {
   due_date: string | null; // YYYY-MM-DD
   priority: number; // Linear scale: 0 none, 1 urgent, 2 high, 3 medium, 4 low
   url: string;
+  state: string | null; // workflow state name, e.g. "Backlog", "In Progress"
 }
 
 export interface MealEvent {
