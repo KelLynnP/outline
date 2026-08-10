@@ -513,7 +513,7 @@ function Row({
   const [expanded, setExpanded] = useState(kids.length > 0);
   const [addingSub, setAddingSub] = useState(false);
   const [sendingToLinear, setSendingToLinear] = useState(false);
-  const [editText, setEditText] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [editTags, setEditTags] = useState<string | null>(null);
   const [editWho, setEditWho] = useState<string | null>(null);
   const dateRef = useRef<HTMLInputElement>(null);
@@ -521,7 +521,7 @@ function Row({
   const overdue = !done && item.due_date && item.due_date < today;
   // Show every tag on the row (multiple tags); only hide the group key.
   const extraTags = item.tags.filter((t) => t !== hideTag);
-  const editing = editText !== null || editTags !== null || editWho !== null;
+  const editing = editTags !== null || editWho !== null;
 
   // A row accepts other tasks (to nest them) but must ignore its own drag:
   // otherwise the source row claims the drag at dragstart (the cursor starts
@@ -540,14 +540,6 @@ function Row({
         )
       : {};
 
-  const saveText = async () => {
-    const next = editText?.trim();
-    setEditText(null);
-    if (next && next !== item.text) {
-      await api.updateItem(item.id, { text: next });
-      onChange();
-    }
-  };
   const saveTags = async () => {
     const raw = editTags ?? "";
     setEditTags(null);
@@ -622,35 +614,22 @@ function Row({
           }}
         />
       )}
-      {editText !== null ? (
-        <input
-          className="task-row-input"
-          autoFocus
-          value={editText}
-          onChange={(e) => setEditText(e.target.value)}
-          onBlur={saveText}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") saveText();
-            if (e.key === "Escape") setEditText(null);
-          }}
-        />
-      ) : (
-        <span
-          className="task-row-text"
-          title={
-            isLinear
-              ? "synced from Linear — edit the text there"
-              : "double-click to edit · drop a task here to nest under it"
-          }
-          onDoubleClick={() => !done && !isLinear && setEditText(item.text)}
-        >
-          {item.tag === "#c!" && <span className="tag-c urgent">!</span>}
-          {item.text}
-          {kids.length > 0 && (
-            <span className="quiet child-count"> · {kids.length}</span>
-          )}
-        </span>
-      )}
+      <span
+        className="task-row-text"
+        title="click for details · drop a task here to nest under it"
+        onClick={() => setDetailOpen(true)}
+      >
+        {item.tag === "#c!" && <span className="tag-c urgent">!</span>}
+        {item.text}
+        {item.description && (
+          <span className="desc-mark" title="has description">
+            ≡
+          </span>
+        )}
+        {kids.length > 0 && (
+          <span className="quiet child-count"> · {kids.length}</span>
+        )}
+      </span>
       {isLinear && (
         <a
           className="chip linear-chip"
@@ -888,7 +867,148 @@ function Row({
         onCancel={() => setSendingToLinear(false)}
       />
     )}
+    {detailOpen && (
+      <TaskDetailModal
+        item={item}
+        onChange={onChange}
+        onClose={() => setDetailOpen(false)}
+      />
+    )}
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* TaskDetailModal: click a task to see everything on it.              */
+/* Title + description are editable for local tasks; Linear rows are   */
+/* read-only here (Linear owns them) with a jump-out link.             */
+/* ------------------------------------------------------------------ */
+
+function TaskDetailModal({
+  item,
+  onChange,
+  onClose,
+}: {
+  item: CaughtItem;
+  onChange: () => void;
+  onClose: () => void;
+}) {
+  const isLinear = item.source === "linear";
+  const [title, setTitle] = useState(item.text);
+  const [description, setDescription] = useState(item.description ?? "");
+  const [busy, setBusy] = useState(false);
+  const dirty =
+    !isLinear &&
+    (title.trim() !== item.text ||
+      (description.trim() || null) !== (item.description ?? null));
+
+  const save = async () => {
+    if (!dirty || busy || !title.trim()) return;
+    setBusy(true);
+    await api.updateItem(item.id, {
+      text: title.trim(),
+      description: description.trim() || null,
+    });
+    onChange();
+    onClose();
+  };
+
+  return (
+    <div className="linear-modal-overlay" onClick={onClose}>
+      <div
+        className="linear-modal task-detail"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="linear-modal-title">
+          {item.kind === "note" ? "note" : "task"}
+          {item.status === "closed" && " · done"}
+          {isLinear && (
+            <a
+              className="chip linear-chip"
+              href={item.source_deeplink ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+              title="open in Linear"
+            >
+              <b>L</b>
+              {item.linear_identifier}
+            </a>
+          )}
+        </div>
+        {isLinear ? (
+          <>
+            <div className="linear-modal-task">{item.text}</div>
+            {item.description ? (
+              <div className="task-detail-desc">{item.description}</div>
+            ) : (
+              <div className="quiet">no description</div>
+            )}
+            <div className="quiet">synced from Linear — edit title/description there.</div>
+          </>
+        ) : (
+          <>
+            <label>
+              title
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && save()}
+              />
+            </label>
+            <label>
+              description
+              <textarea
+                rows={5}
+                value={description}
+                placeholder="add more detail…"
+                onChange={(e) => setDescription(e.target.value)}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && (e.metaKey || e.ctrlKey) && save()
+                }
+              />
+            </label>
+          </>
+        )}
+        <div className="task-detail-meta">
+          {item.kind !== "note" && (
+            <span className={`prio-chip prio-${item.priority}`}>
+              P{item.priority}
+            </span>
+          )}
+          {item.tag === "#c!" && <span className="due-chip overdue">urgent</span>}
+          {item.linear_team && <span className="tag-chip">{item.linear_team}</span>}
+          {item.assignee && <span className="tag-chip">@{item.assignee}</span>}
+          {item.due_date && (
+            <span className="due-chip later">due {shortDate(item.due_date)}</span>
+          )}
+          {item.scheduled_date && (
+            <span className="due-chip later">
+              on calendar {shortDate(item.scheduled_date)}
+              {item.scheduled_time ? ` ${fmt12(item.scheduled_time)}` : ""}
+            </span>
+          )}
+          {item.tags.map((t) => (
+            <span key={t} className="tag-chip">
+              #{t}
+            </span>
+          ))}
+        </div>
+        <div className="quiet">
+          captured {shortDate(item.captured_date)}
+          {item.closed_date && <> · completed {doneLabel(item.closed_date)}</>}
+        </div>
+        <div className="linear-modal-actions">
+          <button onClick={onClose}>close</button>
+          {!isLinear && (
+            <button className="primary" disabled={!dirty || busy} onClick={save}>
+              save
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -920,7 +1040,7 @@ function LinearSendModal({
   const [assigneeId, setAssigneeId] = useState("");
   // Default from the local P1-3: P1→high, P2→medium, P3→low.
   const [priority, setPriority] = useState(item.priority + 1);
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(item.description ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1072,6 +1192,7 @@ function Composer({
   onCreated: () => void;
 }) {
   const [text, setText] = useState("");
+  const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState<Priority>(2);
   const [tagInput, setTagInput] = useState("");
@@ -1096,8 +1217,10 @@ function Composer({
       tags,
       assignee: who,
       kind: asNote ? "note" : "task",
+      description: description || null,
     });
     setText("");
+    setDescription("");
     setDueDate("");
     setPriority(2);
     setTagInput("");
@@ -1108,56 +1231,69 @@ function Composer({
 
   return (
     <div className="tb-composer">
-      <button
-        className={`tog ${asNote ? "on" : ""}`}
-        title="note: freeform, no checkbox, never 'done'"
-        onClick={() => setAsNote(!asNote)}
-      >
-        note
-      </button>
-      <input
-        className="tb-composer-text"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && submit()}
-        placeholder={asNote ? "something to keep in mind — enter to add" : "task "}
+      <div className="tb-composer-row">
+        <button
+          className={`tog ${asNote ? "on" : ""}`}
+          title="note: freeform, no checkbox, never 'done'"
+          onClick={() => setAsNote(!asNote)}
+        >
+          note
+        </button>
+        <input
+          className="tb-composer-text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder={asNote ? "something to keep in mind — enter to add" : "task title"}
+        />
+      </div>
+      <textarea
+        className="tb-composer-desc"
+        rows={2}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit()}
+        placeholder="description (optional) — ⌘enter to add"
       />
-      <PrioBars
-        priority={priority}
-        onClick={() => setPriority(((priority % 3) + 1) as Priority)}
-      />
-      <input
-        type="date"
-        className="tb-composer-date"
-        title="due date (deadline)"
-        value={dueDate}
-        onChange={(e) => setDueDate(e.target.value)}
-      />
-      <input
-        className="tb-composer-who"
-        value={assignee}
-        onChange={(e) => setAssignee(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && submit()}
-        placeholder="@person"
-        title="assign to someone"
-      />
-      <input
-        className="tb-composer-tags"
-        value={tagInput}
-        onChange={(e) => setTagInput(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && submit()}
-        placeholder="tags"
-      />
-      <button
-        className={`urgent-toggle ${urgent ? "on" : ""}`}
-        title="urgent"
-        onClick={() => setUrgent(!urgent)}
-      >
-        !
-      </button>
-      <button className="tb-add" onClick={submit} disabled={!text.trim()}>
-        add
-      </button>
+      <div className="tb-composer-row">
+        <PrioBars
+          priority={priority}
+          onClick={() => setPriority(((priority % 3) + 1) as Priority)}
+        />
+        <input
+          type="date"
+          className="tb-composer-date"
+          title="due date (deadline)"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+        />
+        <input
+          className="tb-composer-who"
+          value={assignee}
+          onChange={(e) => setAssignee(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="@person"
+          title="assign to someone"
+        />
+        <input
+          className="tb-composer-tags"
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="tags"
+        />
+        <button
+          className={`urgent-toggle ${urgent ? "on" : ""}`}
+          title="urgent"
+          onClick={() => setUrgent(!urgent)}
+        >
+          !
+        </button>
+        <span className="tb-composer-spacer" />
+        <button className="tb-add" onClick={submit} disabled={!text.trim()}>
+          add
+        </button>
+      </div>
     </div>
   );
 }

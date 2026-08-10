@@ -40,6 +40,7 @@ export const api = {
     assignee?: string | null;
     parent_id?: number | null;
     kind?: "task" | "note";
+    description?: string | null;
   }) =>
     fetch("/api/items", {
       method: "POST",
@@ -56,6 +57,7 @@ export const api = {
       tags?: string[];
       assignee?: string | null;
       parent_id?: number | null;
+      description?: string | null;
     },
   ) =>
     fetch(`/api/items/${id}`, {

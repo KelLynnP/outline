@@ -105,6 +105,7 @@ app.post("/api/items", async (c) => {
     assignee?: string | null;
     parent_id?: number | null;
     kind?: "task" | "note";
+    description?: string | null;
   };
   if (!body?.text?.trim()) return c.json({ error: "text_required" }, 400);
   try {
@@ -196,7 +197,8 @@ app.post("/api/items/:id/linear", async (c) => {
       assigneeId: body.assignee_id,
       priority: body.priority,
       dueDate: item.due_date,
-      description: body.description,
+      // The modal prefills with the task's own description; fall back to it.
+      description: body.description ?? item.description,
     });
     return c.json(linkItemToLinear(id, issue));
   } catch (e) {

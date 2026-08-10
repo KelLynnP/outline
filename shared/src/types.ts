@@ -21,6 +21,8 @@ export interface CaughtItem {
   parent_id: number | null;
   // "note" = freeform thought, no checkbox, never shows in done.
   kind: "task" | "note";
+  // Longer body under the title (linear-style); Linear owns it on synced rows.
+  description: string | null;
   // "linear" rows sync from Linear (see backend/src/adapters/linear.ts);
   // Linear owns their text/status/due/assignee. "manual" rows are yours.
   source: "manual" | "linear";

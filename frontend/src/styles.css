@@ -1235,10 +1235,30 @@ button.tog.on {
 
 .tb-composer {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 4px 0 14px;
 }
+.tb-composer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tb-composer-desc {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-soft);
+  border: none;
+  border-bottom: 1px dashed var(--line);
+  background: transparent;
+  outline: none;
+  padding: 2px 0;
+  resize: vertical;
+  min-height: 20px;
+}
+.tb-composer-desc:focus { border-bottom: 1px solid var(--ink); color: var(--ink); }
+.tb-composer-spacer { flex: 1; }
 .tb-composer-text {
   flex: 1;
   min-width: 140px;
@@ -3101,3 +3121,61 @@ button.tog.on {
   color: var(--card);
 }
 .linear-modal-actions button:disabled { opacity: 0.5; cursor: default; }
+
+/* task detail modal (click a row's text) */
+.task-row-text { cursor: pointer; }
+.task-row .desc-mark {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--ink-quiet);
+}
+.linear-modal.task-detail { width: 440px; }
+.linear-modal.task-detail input {
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+}
+.task-detail-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow: auto;
+}
+.task-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.linear-modal-title .linear-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #eeebfa;
+  color: #4c3fa3;
+  text-decoration: none;
+  border-bottom: none;
+}
+.linear-modal-title .linear-chip b {
+  font-family: var(--display);
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.3;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  padding: 0 2px;
+}

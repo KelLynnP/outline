@@ -51,6 +51,7 @@ export interface LinearIssue {
   identifier: string; // "NON-123"
   team: string; // team key
   title: string;
+  description: string | null; // markdown body
   assignee: string | null; // display name
   due_date: string | null; // YYYY-MM-DD
   priority: number; // Linear scale: 0 none, 1 urgent, 2 high, 3 medium, 4 low

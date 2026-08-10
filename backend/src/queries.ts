@@ -30,6 +30,7 @@ type ItemRow = {
   assignee: string | null;
   parent_id: number | null;
   kind: string;
+  description: string | null;
   source: string;
   external_id: string | null;
   linear_identifier: string | null;
@@ -85,6 +86,7 @@ const rowToItem = (r: ItemRow): CaughtItem => ({
   assignee: r.assignee ?? null,
   parent_id: r.parent_id ?? null,
   kind: r.kind === "note" ? "note" : "task",
+  description: r.description ?? null,
   source: r.source === "linear" ? "linear" : "manual",
   external_id: r.external_id ?? null,
   linear_identifier: r.linear_identifier ?? null,
@@ -200,6 +202,7 @@ export function addItem(input: {
   assignee?: string | null;
   parent_id?: number | null;
   kind?: "task" | "note";
+  description?: string | null;
 }): CaughtItem {
   const settings = readSettings();
   const tag = input.tag ?? settings.tags.normal;
@@ -212,8 +215,8 @@ export function addItem(input: {
   }
   const info = db
     .prepare(
-      `INSERT INTO items (text, tag, captured_date, due_date, status, source_deeplink, priority, tags, assignee, parent_id, kind)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO items (text, tag, captured_date, due_date, status, source_deeplink, priority, tags, assignee, parent_id, kind, description)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.text,
@@ -226,6 +229,7 @@ export function addItem(input: {
       normalizeAssignee(input.assignee),
       parentId,
       input.kind === "note" ? "note" : "task",
+      input.description?.trim() || null,
     );
   return rowToItem(
     db.prepare("SELECT * FROM items WHERE id = ?").get(info.lastInsertRowid) as ItemRow,
@@ -258,6 +262,7 @@ export function updateItem(
     tags?: string[];
     assignee?: string | null;
     parent_id?: number | null;
+    description?: string | null;
   },
 ): CaughtItem | null {
   const current = db.prepare("SELECT * FROM items WHERE id = ?").get(id) as
@@ -285,9 +290,13 @@ export function updateItem(
         ? current.assignee
         : normalizeAssignee(patch.assignee),
     parent_id: parentId,
+    description:
+      patch.description === undefined
+        ? current.description
+        : patch.description?.trim() || null,
   };
   db.prepare(
-    "UPDATE items SET text=?, tag=?, due_date=?, priority=?, tags=?, assignee=?, parent_id=? WHERE id=?",
+    "UPDATE items SET text=?, tag=?, due_date=?, priority=?, tags=?, assignee=?, parent_id=?, description=? WHERE id=?",
   ).run(
     next.text,
     next.tag,
@@ -296,6 +305,7 @@ export function updateItem(
     next.tags,
     next.assignee,
     next.parent_id,
+    next.description,
     id,
   );
   return rowToItem(
@@ -902,12 +912,14 @@ export function syncLinearItems(issues: LinearIssue[]): {
   const ins = db.prepare(
     `INSERT INTO items
      (text, tag, captured_date, due_date, status, source_deeplink, priority,
-      tags, assignee, kind, source, external_id, linear_identifier, linear_team)
-     VALUES (?, ?, ?, ?, 'open', ?, ?, '', ?, 'task', 'linear', ?, ?, ?)`,
+      tags, assignee, kind, source, external_id, linear_identifier, linear_team,
+      description)
+     VALUES (?, ?, ?, ?, 'open', ?, ?, '', ?, 'task', 'linear', ?, ?, ?, ?)`,
   );
   const upd = db.prepare(
     `UPDATE items SET text=?, tag=?, due_date=?, status='open', closed_date=NULL,
-       source_deeplink=?, priority=?, assignee=?, linear_identifier=?, linear_team=?
+       source_deeplink=?, priority=?, assignee=?, linear_identifier=?, linear_team=?,
+       description=?
      WHERE id=?`,
   );
   const close = db.prepare(
@@ -933,6 +945,7 @@ export function syncLinearItems(issues: LinearIssue[]): {
           it.assignee,
           it.identifier,
           it.team,
+          it.description,
           row.id,
         );
         updated++;
@@ -948,6 +961,7 @@ export function syncLinearItems(issues: LinearIssue[]): {
           it.external_id,
           it.identifier,
           it.team,
+          it.description,
         );
         created++;
       }
@@ -970,7 +984,7 @@ export function linkItemToLinear(id: number, issue: LinearIssue): CaughtItem | n
   db.prepare(
     `UPDATE items SET source='linear', external_id=?, linear_identifier=?,
        linear_team=?, source_deeplink=?, text=?, tag=?, due_date=?, priority=?,
-       assignee=?
+       assignee=?, description=?
      WHERE id=?`,
   ).run(
     issue.external_id,
@@ -982,6 +996,7 @@ export function linkItemToLinear(id: number, issue: LinearIssue): CaughtItem | n
     issue.due_date,
     linearPrio(issue.priority),
     issue.assignee,
+    issue.description,
     id,
   );
   return getItem(id);

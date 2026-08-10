@@ -35,14 +35,14 @@ async function gql<T>(
   return json.data!;
 }
 
+const ISSUE_FIELDS = `id identifier title description url dueDate priority
+        team { key }
+        assignee { displayName }`;
+
 const ISSUES_QUERY = `
   query Issues($filter: IssueFilter, $after: String) {
     issues(filter: $filter, first: 100, after: $after) {
-      nodes {
-        id identifier title url dueDate priority
-        team { key }
-        assignee { displayName }
-      }
+      nodes { ${ISSUE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -52,6 +52,7 @@ type IssueNode = {
   id: string;
   identifier: string;
   title: string;
+  description: string | null;
   url: string;
   dueDate: string | null;
   priority: number | null;
@@ -59,15 +60,12 @@ type IssueNode = {
   assignee: { displayName: string } | null;
 };
 
-const ISSUE_FIELDS = `id identifier title url dueDate priority
-        team { key }
-        assignee { displayName }`;
-
 const nodeToIssue = (n: IssueNode): LinearIssue => ({
   external_id: n.id,
   identifier: n.identifier,
   team: n.team?.key ?? "",
   title: n.title,
+  description: n.description?.trim() || null,
   assignee: n.assignee?.displayName ?? null,
   due_date: n.dueDate,
   priority: n.priority ?? 0,
