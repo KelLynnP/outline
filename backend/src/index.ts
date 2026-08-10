@@ -20,7 +20,10 @@ import {
   deleteRoadmapEntry,
   deleteRoadmapLane,
   deleteTaskEvents,
+  detachLinearItem,
   getEvent,
+  getItem,
+  linkItemToLinear,
   getOrEmptyStop,
   getPeriodNotes,
   listAllItems,
@@ -42,10 +45,16 @@ import {
   updateRoadmapEntry,
   updateRoadmapLane,
 } from "./queries.js";
-import { runCalendarSync, scheduleJobs } from "./synthesis.js";
+import { runCalendarSync, runLinearSync, scheduleJobs } from "./synthesis.js";
 import { adapters } from "./adapters/index.js";
 import { heptabase } from "./adapters/heptabase.js";
 import { calendar } from "./adapters/calendar.js";
+import {
+  createLinearIssue,
+  fetchLinearTeams,
+  linear,
+  setLinearIssueState,
+} from "./adapters/linear.js";
 import { backupDir, fetchOpenTodosFromBackup } from "./adapters/heptabase-backup.js";
 import { fileURLToPath } from "node:url";
 
@@ -115,10 +124,27 @@ app.patch("/api/items/:id", async (c) => {
   return c.json(item);
 });
 
+// For linear rows, push the status change upstream *first* — if we only
+// changed it locally, the next sync would revert it.
+async function pushLinearState(
+  item: { source: string; external_id: string | null },
+  type: "completed" | "unstarted",
+): Promise<void> {
+  if (item.source !== "linear" || !item.external_id || !linear.enabled()) return;
+  await setLinearIssueState(item.external_id, type);
+}
+
 app.post("/api/items/:id/close", async (c) => {
   const id = Number(c.req.param("id"));
-  const item = closeItem(id);
-  if (!item) return c.json({ error: "not_found" }, 404);
+  const existing = getItem(id);
+  if (!existing) return c.json({ error: "not_found" }, 404);
+  try {
+    await pushLinearState(existing, "completed");
+  } catch (e) {
+    console.error("linear_close", e);
+    return c.json({ error: String(e) }, 502);
+  }
+  const item = closeItem(id)!;
   deleteTaskEvents(id); // a closed task shouldn't linger on the calendar
   if (heptabase.enabled() && heptabase.appendToTodayJournal) {
     heptabase
@@ -128,8 +154,60 @@ app.post("/api/items/:id/close", async (c) => {
   return c.json(item);
 });
 
-app.post("/api/items/:id/reopen", (c) => {
-  const item = reopenItem(Number(c.req.param("id")));
+app.post("/api/items/:id/reopen", async (c) => {
+  const id = Number(c.req.param("id"));
+  const existing = getItem(id);
+  if (!existing) return c.json({ error: "not_found" }, 404);
+  try {
+    await pushLinearState(existing, "unstarted");
+  } catch (e) {
+    console.error("linear_reopen", e);
+    return c.json({ error: String(e) }, 502);
+  }
+  return c.json(reopenItem(id)!);
+});
+
+app.get("/api/linear/teams", async (c) => {
+  try {
+    return c.json(await fetchLinearTeams());
+  } catch (e) {
+    console.error("linear_teams", e);
+    return c.json({ error: String(e) }, 500);
+  }
+});
+
+// Convert a local task into a Linear issue (the send-to-Linear modal).
+app.post("/api/items/:id/linear", async (c) => {
+  const id = Number(c.req.param("id"));
+  const item = getItem(id);
+  if (!item) return c.json({ error: "not_found" }, 404);
+  if (item.source === "linear") return c.json({ error: "already_linear" }, 400);
+  const body = (await c.req.json()) as {
+    team_id: string;
+    assignee_id?: string | null;
+    priority?: number; // Linear scale 0-4
+    description?: string | null;
+  };
+  if (!body?.team_id) return c.json({ error: "team_required" }, 400);
+  try {
+    const issue = await createLinearIssue({
+      teamId: body.team_id,
+      title: item.text,
+      assigneeId: body.assignee_id,
+      priority: body.priority,
+      dueDate: item.due_date,
+      description: body.description,
+    });
+    return c.json(linkItemToLinear(id, issue));
+  } catch (e) {
+    console.error("linear_create", e);
+    return c.json({ error: String(e) }, 502);
+  }
+});
+
+// Detach: back to a plain local task (the Linear issue is left untouched).
+app.delete("/api/items/:id/linear", (c) => {
+  const item = detachLinearItem(Number(c.req.param("id")));
   if (!item) return c.json({ error: "not_found" }, 404);
   return c.json(item);
 });
@@ -351,6 +429,17 @@ app.post("/api/sync/calendar", async (c) => {
     return c.json({ ok: true, synced });
   } catch (e) {
     console.error("calendar_sync", e);
+    return c.json({ ok: false, error: String(e) }, 500);
+  }
+});
+
+app.post("/api/sync/linear", async (c) => {
+  try {
+    const result = await runLinearSync();
+    if (!result) return c.json({ ok: false, error: "linear_disabled" }, 400);
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    console.error("linear_sync", e);
     return c.json({ ok: false, error: String(e) }, 500);
   }
 });

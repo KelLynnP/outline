@@ -115,6 +115,10 @@ ensureColumn("items", "tags", "tags TEXT NOT NULL DEFAULT ''");
 ensureColumn("items", "assignee", "assignee TEXT"); // free-text @person, internal only
 ensureColumn("items", "parent_id", "parent_id INTEGER"); // nest under another item (project)
 ensureColumn("items", "kind", "kind TEXT NOT NULL DEFAULT 'task'"); // task | note (freeform, uncheckable)
+ensureColumn("items", "source", "source TEXT NOT NULL DEFAULT 'manual'"); // manual | linear
+ensureColumn("items", "external_id", "external_id TEXT"); // linear issue UUID (sync upsert key)
+ensureColumn("items", "linear_identifier", "linear_identifier TEXT"); // "NON-123"
+ensureColumn("items", "linear_team", "linear_team TEXT"); // team key
 ensureColumn("stops", "notes", "notes TEXT");
 ensureColumn("events", "item_id", "item_id INTEGER");
 ensureColumn("events", "status", "status TEXT");

@@ -2,6 +2,7 @@ import type {
   BodySignal,
   CalendarEvent,
   CaughtItem,
+  LinearTeam,
   LineView,
   Priority,
   RoadmapEntry,
@@ -68,6 +69,29 @@ export const api = {
     fetch(`/api/items/${id}/carry`, { method: "POST" }).then((r) => j<CaughtItem>(r)),
   reopenItem: (id: number) =>
     fetch(`/api/items/${id}/reopen`, { method: "POST" }).then((r) => j<CaughtItem>(r)),
+  linearTeams: () => fetch("/api/linear/teams").then((r) => j<LinearTeam[]>(r)),
+  sendToLinear: (
+    id: number,
+    body: {
+      team_id: string;
+      assignee_id?: string | null;
+      priority?: number; // Linear scale 0-4
+      description?: string | null;
+    },
+  ) =>
+    fetch(`/api/items/${id}/linear`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => j<CaughtItem>(r)),
+  detachLinear: (id: number) =>
+    fetch(`/api/items/${id}/linear`, { method: "DELETE" }).then((r) =>
+      j<CaughtItem>(r),
+    ),
+  syncLinear: () =>
+    fetch("/api/sync/linear", { method: "POST" }).then((r) =>
+      j<{ ok: boolean; created: number; updated: number; closed: number }>(r),
+    ),
   unscheduleItem: (id: number) =>
     fetch(`/api/items/${id}/schedule`, { method: "DELETE" }).then((r) =>
       j<{ removed: number }>(r),

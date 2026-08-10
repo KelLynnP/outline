@@ -21,9 +21,23 @@ export interface CaughtItem {
   parent_id: number | null;
   // "note" = freeform thought, no checkbox, never shows in done.
   kind: "task" | "note";
+  // "linear" rows sync from Linear (see backend/src/adapters/linear.ts);
+  // Linear owns their text/status/due/assignee. "manual" rows are yours.
+  source: "manual" | "linear";
+  external_id: string | null; // Linear issue UUID (upsert key)
+  linear_identifier: string | null; // "NON-123"
+  linear_team: string | null; // team key, for the team filter
   // Set when a "task" calendar event exists for this item (see listAllItems).
   scheduled_date?: string | null; // YYYY-MM-DD
   scheduled_time?: string | null; // HH:MM
+}
+
+// For the send-to-Linear modal: teams + members to pick from.
+export interface LinearTeam {
+  id: string;
+  key: string; // "NON"
+  name: string;
+  members: { id: string; name: string }[];
 }
 
 export type EventStatus = "pending" | "confirmed" | null;

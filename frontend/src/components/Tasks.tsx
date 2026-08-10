@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   localDateISO,
   type CaughtItem,
+  type LinearTeam,
   type Priority,
   type Settings,
 } from "@life-console/shared";
@@ -207,9 +208,19 @@ export function TaskTable({
   scheduleToday?: (itemId: number) => void | Promise<void>;
 }) {
   const today = localDateISO();
-  const open = items.filter((i) => i.status !== "closed");
+  // View filter: everything, or only Linear-synced rows (optionally one team).
+  const [linearView, toggleLinearView] = useToggle("tasks.view.linear", false);
+  const [team, setTeam] = useState("all");
+  const teams = [...new Set(items.map((i) => i.linear_team).filter(Boolean))].sort() as string[];
+  const visible = linearView
+    ? items.filter(
+        (i) => i.source === "linear" && (team === "all" || i.linear_team === team),
+      )
+    : items;
+
+  const open = visible.filter((i) => i.status !== "closed");
   // Archived notes just disappear; only real tasks show in "done".
-  const done = items
+  const done = visible
     .filter((i) => i.status === "closed" && i.kind !== "note")
     .sort((a, b) => (b.closed_date ?? "").localeCompare(a.closed_date ?? ""))
     .slice(0, 20);
@@ -227,7 +238,45 @@ export function TaskTable({
 
   return (
     <div className="taskboard">
-      <Composer settings={settings} onCreated={onChange} />
+      {teams.length > 0 && (
+        <div className="tb-viewbar">
+          <button
+            className={`tog ${!linearView ? "on" : ""}`}
+            onClick={() => linearView && toggleLinearView()}
+          >
+            all
+          </button>
+          <button
+            className={`tog ${linearView ? "on" : ""}`}
+            onClick={() => !linearView && toggleLinearView()}
+          >
+            linear
+          </button>
+          {linearView && (
+            <>
+              <select value={team} onChange={(e) => setTeam(e.target.value)}>
+                <option value="all">all teams</option>
+                {teams.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="row-icon"
+                title="sync with Linear now"
+                onClick={async () => {
+                  await api.syncLinear();
+                  onChange();
+                }}
+              >
+                ↻
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {!linearView && <Composer settings={settings} onCreated={onChange} />}
       <Section
         id="today"
         label="today"
@@ -249,7 +298,7 @@ export function TaskTable({
         id="done"
         label="done"
         items={done.filter((i) => !i.parent_id)}
-        allOpen={items}
+        allOpen={visible}
         onChange={onChange}
         flat
         onDropItem={async (id) => {
@@ -458,8 +507,12 @@ function Row({
   showNest?: boolean;
 }) {
   const kids = showNest && !done ? childrenOf(allOpen, item.id) : [];
+  // Linear owns text/priority/due/assignee on synced rows — edit them there.
+  // Tags, nesting, and scheduling stay local-only and editable.
+  const isLinear = item.source === "linear";
   const [expanded, setExpanded] = useState(kids.length > 0);
   const [addingSub, setAddingSub] = useState(false);
+  const [sendingToLinear, setSendingToLinear] = useState(false);
   const [editText, setEditText] = useState<string | null>(null);
   const [editTags, setEditTags] = useState<string | null>(null);
   const [editWho, setEditWho] = useState<string | null>(null);
@@ -561,6 +614,7 @@ function Row({
         <PrioBars
           priority={item.priority}
           onClick={async () => {
+            if (isLinear) return;
             await api.updateItem(item.id, {
               priority: ((item.priority % 3) + 1) as Priority,
             });
@@ -583,8 +637,12 @@ function Row({
       ) : (
         <span
           className="task-row-text"
-          title="double-click to edit · drop a task here to nest under it"
-          onDoubleClick={() => !done && setEditText(item.text)}
+          title={
+            isLinear
+              ? "synced from Linear — edit the text there"
+              : "double-click to edit · drop a task here to nest under it"
+          }
+          onDoubleClick={() => !done && !isLinear && setEditText(item.text)}
         >
           {item.tag === "#c!" && <span className="tag-c urgent">!</span>}
           {item.text}
@@ -592,6 +650,18 @@ function Row({
             <span className="quiet child-count"> · {kids.length}</span>
           )}
         </span>
+      )}
+      {isLinear && (
+        <a
+          className="chip linear-chip"
+          href={item.source_deeplink ?? undefined}
+          target="_blank"
+          rel="noreferrer"
+          title={`${item.linear_identifier} — open in Linear`}
+        >
+          <b>L</b>
+          {item.linear_identifier}
+        </a>
       )}
       {editTags !== null ? (
         <input
@@ -653,13 +723,14 @@ function Row({
             background: tagColors(item.assignee).bg,
             color: tagColors(item.assignee).ink,
           }}
-          title="change assignee"
-          onClick={() => !done && setEditWho(item.assignee ?? "")}
+          title={isLinear ? "assignee synced from Linear" : "change assignee"}
+          onClick={() => !done && !isLinear && setEditWho(item.assignee ?? "")}
         >
           @{item.assignee}
         </button>
       ) : (
-        !done && (
+        !done &&
+        !isLinear && (
           <button
             className="row-icon"
             title="assign to someone"
@@ -683,12 +754,18 @@ function Row({
             : `${shortDate(item.scheduled_date)}${item.scheduled_time ? ` ${fmt12(item.scheduled_time)}` : ""}`}
         </span>
       )}
-      {!done && (
+      {!done && (item.due_date || !isLinear) && (
         <span className="due-wrap">
           <button
             className={`chip due ${overdue ? "overdue" : ""} ${item.due_date ? "" : "empty"}`}
-            title={item.due_date ? "due date — click to change" : "set due date"}
-            onClick={openDatePicker}
+            title={
+              isLinear
+                ? "due date synced from Linear"
+                : item.due_date
+                  ? "due date — click to change"
+                  : "set due date"
+            }
+            onClick={() => !isLinear && openDatePicker()}
           >
             {item.due_date ? shortDate(item.due_date) : "due"}
           </button>
@@ -742,6 +819,27 @@ function Row({
           +
         </button>
       )}
+      {!done && !isLinear && item.kind !== "note" && (
+        <button
+          className="row-icon"
+          title="send to Linear"
+          onClick={() => setSendingToLinear(true)}
+        >
+          L
+        </button>
+      )}
+      {!done && isLinear && (
+        <button
+          className="row-icon"
+          title="detach from Linear (keep as a local task; the issue stays)"
+          onClick={async () => {
+            await api.detachLinear(item.id);
+            onChange();
+          }}
+        >
+          ⇤
+        </button>
+      )}
       {item.kind === "note" && !done && (
         <button
           className="row-icon"
@@ -780,7 +878,148 @@ function Row({
         )}
       </>
     )}
+    {sendingToLinear && (
+      <LinearSendModal
+        item={item}
+        onDone={() => {
+          setSendingToLinear(false);
+          onChange();
+        }}
+        onCancel={() => setSendingToLinear(false)}
+      />
+    )}
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* LinearSendModal: convert a local task into a Linear issue.          */
+/* Title + due date carry over from the task; team/assignee/priority/  */
+/* description are the extra Linear-side fields.                       */
+/* ------------------------------------------------------------------ */
+
+const LINEAR_PRIORITIES: [number, string][] = [
+  [1, "urgent"],
+  [2, "high"],
+  [3, "medium"],
+  [4, "low"],
+  [0, "none"],
+];
+
+function LinearSendModal({
+  item,
+  onDone,
+  onCancel,
+}: {
+  item: CaughtItem;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [teams, setTeams] = useState<LinearTeam[] | null>(null);
+  const [teamId, setTeamId] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
+  // Default from the local P1-3: P1→high, P2→medium, P3→low.
+  const [priority, setPriority] = useState(item.priority + 1);
+  const [description, setDescription] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api
+      .linearTeams()
+      .then((t) => {
+        setTeams(t);
+        if (t[0]) setTeamId(t[0].id);
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const team = teams?.find((t) => t.id === teamId);
+  const submit = async () => {
+    if (!teamId || busy) return;
+    setBusy(true);
+    try {
+      await api.sendToLinear(item.id, {
+        team_id: teamId,
+        assignee_id: assigneeId || null,
+        priority,
+        description: description || null,
+      });
+      onDone();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="linear-modal-overlay" onClick={onCancel}>
+      <div
+        className="linear-modal"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="linear-modal-title">send to linear</div>
+        <div className="linear-modal-task">{item.text}</div>
+        {error && <div className="linear-modal-error">{error}</div>}
+        <label>
+          team
+          <select
+            value={teamId}
+            onChange={(e) => {
+              setTeamId(e.target.value);
+              setAssigneeId("");
+            }}
+          >
+            {(teams ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} ({t.key})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          assignee
+          <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+            <option value="">unassigned</option>
+            {(team?.members ?? []).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          priority
+          <select value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
+            {LINEAR_PRIORITIES.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          description
+          <textarea
+            rows={3}
+            value={description}
+            placeholder="optional details for the issue…"
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+        {item.due_date && (
+          <div className="quiet">due date ({shortDate(item.due_date)}) carries over</div>
+        )}
+        <div className="linear-modal-actions">
+          <button onClick={onCancel}>cancel</button>
+          <button className="primary" disabled={!teamId || busy} onClick={submit}>
+            {busy ? "sending…" : "create issue"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ import type {
   TodayView,
 } from "@life-console/shared";
 import { localDateISO, shiftDateISO } from "@life-console/shared";
+import type { LinearIssue } from "./adapters/types.js";
 import { db } from "./db.js";
 import { readSettings } from "./settings.js";
 
@@ -29,6 +30,10 @@ type ItemRow = {
   assignee: string | null;
   parent_id: number | null;
   kind: string;
+  source: string;
+  external_id: string | null;
+  linear_identifier: string | null;
+  linear_team: string | null;
 };
 
 /** Strip leading @ and normalize whitespace. Empty → null. */
@@ -80,6 +85,10 @@ const rowToItem = (r: ItemRow): CaughtItem => ({
   assignee: r.assignee ?? null,
   parent_id: r.parent_id ?? null,
   kind: r.kind === "note" ? "note" : "task",
+  source: r.source === "linear" ? "linear" : "manual",
+  external_id: r.external_id ?? null,
+  linear_identifier: r.linear_identifier ?? null,
+  linear_team: r.linear_team ?? null,
 });
 const rowToSignal = (r: SignalRow): BodySignal => ({
   id: r.id,
@@ -119,6 +128,13 @@ export function setDirection(sentence: string) {
   db.prepare(
     "INSERT INTO direction (sentence, generated_at) VALUES (?, ?)",
   ).run(sentence, iso(new Date()));
+}
+
+export function getItem(id: number): CaughtItem | null {
+  const row = db.prepare("SELECT * FROM items WHERE id = ?").get(id) as
+    | ItemRow
+    | undefined;
+  return row ? rowToItem(row) : null;
 }
 
 export function listOpenItems(): CaughtItem[] {
@@ -860,6 +876,126 @@ export function replaceSourceEvents(
     }
   })();
   return events.length;
+}
+
+// Linear priority (0 none, 1 urgent, 2 high, 3 medium, 4 low) → P1-3.
+const linearPrio = (p: number): Priority => (p === 1 || p === 2 ? 1 : p === 4 ? 3 : 2);
+
+// Sync helper: upsert Linear issues into the items table, keyed by
+// external_id — an upsert (not replace) so local nesting/tags/scheduling on
+// linear rows survive re-syncs. Linear owns text/status/due/assignee/priority
+// (checking off an L row pushes to Linear first — see /api/items/:id/close).
+// Only open issues are fetched, so any local linear row missing from `issues`
+// was completed/canceled upstream (or left the sync scope) — close it.
+export function syncLinearItems(issues: LinearIssue[]): {
+  created: number;
+  updated: number;
+  closed: number;
+} {
+  const settings = readSettings();
+
+  const existing = db
+    .prepare("SELECT id, external_id, status FROM items WHERE source = 'linear'")
+    .all() as { id: number; external_id: string; status: string }[];
+  const byExternalId = new Map(existing.map((r) => [r.external_id, r]));
+
+  const ins = db.prepare(
+    `INSERT INTO items
+     (text, tag, captured_date, due_date, status, source_deeplink, priority,
+      tags, assignee, kind, source, external_id, linear_identifier, linear_team)
+     VALUES (?, ?, ?, ?, 'open', ?, ?, '', ?, 'task', 'linear', ?, ?, ?)`,
+  );
+  const upd = db.prepare(
+    `UPDATE items SET text=?, tag=?, due_date=?, status='open', closed_date=NULL,
+       source_deeplink=?, priority=?, assignee=?, linear_identifier=?, linear_team=?
+     WHERE id=?`,
+  );
+  const close = db.prepare(
+    "UPDATE items SET status='closed', closed_date=? WHERE id=?",
+  );
+
+  let created = 0;
+  let updated = 0;
+  let closed = 0;
+  db.transaction(() => {
+    const seen = new Set<string>();
+    for (const it of issues) {
+      seen.add(it.external_id);
+      const tag = it.priority === 1 ? settings.tags.urgent : settings.tags.normal;
+      const row = byExternalId.get(it.external_id);
+      if (row) {
+        upd.run(
+          it.title,
+          tag,
+          it.due_date,
+          it.url,
+          linearPrio(it.priority),
+          it.assignee,
+          it.identifier,
+          it.team,
+          row.id,
+        );
+        updated++;
+      } else {
+        ins.run(
+          it.title,
+          tag,
+          todayISO(),
+          it.due_date,
+          it.url,
+          linearPrio(it.priority),
+          it.assignee,
+          it.external_id,
+          it.identifier,
+          it.team,
+        );
+        created++;
+      }
+    }
+    for (const r of existing) {
+      if (!seen.has(r.external_id) && r.status !== "closed") {
+        close.run(iso(new Date()), r.id);
+        closed++;
+      }
+    }
+  })();
+  return { created, updated, closed };
+}
+
+// Convert flow: mark an existing local task as the given (just-created)
+// Linear issue. Text/due/assignee/priority take Linear's values so the row
+// matches what sync will maintain from now on.
+export function linkItemToLinear(id: number, issue: LinearIssue): CaughtItem | null {
+  const settings = readSettings();
+  db.prepare(
+    `UPDATE items SET source='linear', external_id=?, linear_identifier=?,
+       linear_team=?, source_deeplink=?, text=?, tag=?, due_date=?, priority=?,
+       assignee=?
+     WHERE id=?`,
+  ).run(
+    issue.external_id,
+    issue.identifier,
+    issue.team,
+    issue.url,
+    issue.title,
+    issue.priority === 1 ? settings.tags.urgent : settings.tags.normal,
+    issue.due_date,
+    linearPrio(issue.priority),
+    issue.assignee,
+    id,
+  );
+  return getItem(id);
+}
+
+// Convert flow, other direction: back to a plain local task. The Linear
+// issue itself is left untouched — this only disconnects the row.
+export function detachLinearItem(id: number): CaughtItem | null {
+  db.prepare(
+    `UPDATE items SET source='manual', external_id=NULL, linear_identifier=NULL,
+       linear_team=NULL, source_deeplink=NULL
+     WHERE id=? AND source='linear'`,
+  ).run(id);
+  return getItem(id);
 }
 
 function hoursSince(iso: string | null): number | null {

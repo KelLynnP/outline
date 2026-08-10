@@ -39,6 +39,12 @@ export interface Settings {
     calendar: boolean;
     garmin: boolean;
     doordash: boolean;
+    linear: boolean;
+  };
+  // Linear sync scope (sources.linear must also be on).
+  linear: {
+    teams: string[]; // team keys to sync (e.g. ["NON"]); empty = all teams
+    assigned_only: boolean; // only issues assigned to me
   };
 }
 
@@ -78,5 +84,10 @@ export const DEFAULT_SETTINGS: Settings = {
     calendar: false,
     garmin: false,
     doordash: false,
+    linear: false,
+  },
+  linear: {
+    teams: [],
+    assigned_only: true,
   },
 };

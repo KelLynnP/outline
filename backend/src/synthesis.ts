@@ -2,9 +2,11 @@ import cron from "node-cron";
 import { shiftDateISO } from "@life-console/shared";
 import { heptabase, generateDirectionSentence } from "./adapters/heptabase.js";
 import { calendar } from "./adapters/calendar.js";
+import { linear } from "./adapters/linear.js";
 import {
   replaceSourceEvents,
   setDirection,
+  syncLinearItems,
   upsertStop,
   todayISO,
 } from "./queries.js";
@@ -51,9 +53,23 @@ export async function runCalendarSync(days = 14): Promise<number> {
   return replaceSourceEvents("calendar", from, to, inWindow);
 }
 
+// Pull open Linear issues into the items table (upsert by external_id, so
+// local edits like nesting/tags survive). Issues gone from the fetch —
+// completed, canceled, or out of scope — get closed locally, which is how
+// "done in Linear" propagates to the board.
+export async function runLinearSync(): Promise<{
+  created: number;
+  updated: number;
+  closed: number;
+} | null> {
+  if (!linear.enabled() || !linear.fetchLinearIssues) return null;
+  return syncLinearItems(await linear.fetchLinearIssues());
+}
+
 export function scheduleJobs() {
   // sync once on boot so a fresh/reseeded DB fills immediately
   runCalendarSync().catch((e) => console.error("calendar_sync_boot", e));
+  runLinearSync().catch((e) => console.error("linear_sync_boot", e));
   cron.schedule("15 3 * * *", () => {
     runNightlyStopSummaries().catch((e) => console.error("nightly", e));
   });
@@ -62,5 +78,8 @@ export function scheduleJobs() {
   });
   cron.schedule("5 * * * *", () => {
     runCalendarSync().catch((e) => console.error("calendar_sync", e));
+  });
+  cron.schedule("*/10 * * * *", () => {
+    runLinearSync().catch((e) => console.error("linear_sync", e));
   });
 }

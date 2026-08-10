@@ -4,6 +4,7 @@ import { strava } from "./strava.js";
 import { calendar } from "./calendar.js";
 import { garmin } from "./garmin.js";
 import { doordash } from "./doordash.js";
+import { linear } from "./linear.js";
 import type { SourceAdapter } from "./types.js";
 
 export const adapters: Record<string, SourceAdapter> = {
@@ -12,6 +13,7 @@ export const adapters: Record<string, SourceAdapter> = {
   calendar,
   garmin,
   doordash,
+  linear,
 };
 
 export function enabledAdapters(): SourceAdapter[] {

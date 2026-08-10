@@ -46,6 +46,17 @@ export interface TodoItem {
   deeplink: string | null;
 }
 
+export interface LinearIssue {
+  external_id: string; // Linear issue UUID
+  identifier: string; // "NON-123"
+  team: string; // team key
+  title: string;
+  assignee: string | null; // display name
+  due_date: string | null; // YYYY-MM-DD
+  priority: number; // Linear scale: 0 none, 1 urgent, 2 high, 3 medium, 4 low
+  url: string;
+}
+
 export interface MealEvent {
   timestamp: string;
   label: string;
@@ -72,4 +83,5 @@ export interface SourceAdapter {
   ): Promise<{ created: number; updated: number; deleted: number; dry_run: boolean }>;
   fetchSleep?(from: string, to: string): Promise<SleepEvent[]>;
   fetchRecentMeals?(days: number): Promise<MealEvent[]>;
+  fetchLinearIssues?(): Promise<LinearIssue[]>;
 }
