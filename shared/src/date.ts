@@ -10,3 +10,14 @@ export function shiftDateISO(date: string, days: number): string {
   value.setDate(value.getDate() + days);
   return localDateISO(value);
 }
+
+export type WeekStart = "sunday" | "monday";
+
+export function startOfWeekISO(
+  date: string,
+  startsOn: WeekStart = "sunday",
+): string {
+  const day = new Date(`${date}T12:00:00`).getDay();
+  const firstDay = startsOn === "sunday" ? 0 : 1;
+  return shiftDateISO(date, -((day - firstDay + 7) % 7));
+}

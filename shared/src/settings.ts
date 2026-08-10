@@ -10,6 +10,9 @@ export interface Settings {
     months_visible: number;
     month_color_mode: "fixed" | "derived";
   };
+  calendar: {
+    week_starts_on: "sunday" | "monday";
+  };
   body: {
     tracked: {
       meals: boolean;
@@ -50,6 +53,9 @@ export const DEFAULT_SETTINGS: Settings = {
     recent_stops: 14,
     months_visible: 3,
     month_color_mode: "fixed",
+  },
+  calendar: {
+    week_starts_on: "sunday",
   },
   body: {
     tracked: { meals: true, bike: true, ocean: true, sleep: true },

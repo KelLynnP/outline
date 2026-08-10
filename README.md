@@ -25,7 +25,7 @@ router library.
 ```
 backend/    Hono + better-sqlite3 + node-cron. Raw SQL in queries.ts, routes
             inline in index.ts, schema + ensureColumn migrations in db.ts.
-frontend/   Vite + React + TS. One page (Opt3Page "workboard") + settings.
+frontend/   Vite + React + TS. One page (HomePage).
             Per-page useState; components get data + callbacks, pages own
             loading. Custom ~40-line router in router.tsx.
 shared/     Types (types.ts) and settings schema (settings.ts).
@@ -65,7 +65,15 @@ Config split: secrets in `.env` (loaded path-resolved via `backend/src/env.ts`
 
 **stops / signals / direction** — daily journal summaries + notes, body
 signals (meal/bike/ocean/sleep), and the daily direction sentence. Mostly
-predate the workboard; DayNotes uses `stops.notes`.
+predate the workboard; day notes live in `stops.notes`.
+
+**period_notes** — freeform week/month/year notes (`key` = `week-YYYY-MM-DD`
+configured week start / `month-YYYY-MM` / `year-YYYY`). `PeriodNotes` on the workboard shows
+one pane following the day/week/month view, plus optional **pinned** panes
+("+" pins any scope anchored at the selected date; pins hold their period
+while you navigate, persisted in localStorage `notes.pins`). Day keys
+read/write `stops.notes`, other keys this table — all via
+`GET/PUT /api/notes/:key`.
 
 `listAllItems` joins task events onto items as `scheduled_date` /
 `scheduled_time` — "scheduled" in the UI means "has a calendar block".
@@ -82,13 +90,14 @@ Events: `GET /api/events?date=` or `?from=&to=`, `POST /api/events`,
 end_date is nulled if ≤ start date), `DELETE /api/events/:id`. Accept/decline
 on Google-synced events also RSVPs via the calendar adapter.
 
-Other: `/api/line`, `/api/today`, `/api/stops/:date(/notes)`, `/api/signals`,
+Other: `/api/line`, `/api/today`, `/api/stops/:date`, `/api/notes/:key`,
+`/api/signals`,
 `/api/settings`, `/api/sources`, `POST /api/sync/calendar`,
 `/api/heptabase/todos`.
 
 ## frontend map
 
-- `pages/Opt3Page.tsx` — the workboard. Owns `selectedDate` + `view`
+- `pages/HomePage.tsx` — the home page. Owns `selectedDate` + `view`
   (day/week/month): the **date bar under the timeline is the single source of
   truth** for what all sections display. Owns scheduling callbacks
   (`scheduleTaskAtTime`, `assignTaskToDay` = all-day theme) and `load()`;

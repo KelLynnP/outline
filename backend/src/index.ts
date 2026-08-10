@@ -6,7 +6,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import "./db.js";
-import { readSettings, writeSettings } from "./settings.js";
+import { readSettings } from "./settings.js";
 import {
   addEvent,
   addItem,
@@ -22,7 +22,9 @@ import {
   deleteTaskEvents,
   getEvent,
   getOrEmptyStop,
+  getPeriodNotes,
   listAllItems,
+  updatePeriodNotes,
   updateEventEndDate,
   updateEventHue,
   updateEventStatus,
@@ -57,9 +59,24 @@ app.get("/api/today", (c) => c.json(buildTodayView(readSettings())));
 
 app.get("/api/stops/:date", (c) => c.json(getOrEmptyStop(c.req.param("date"))));
 
-app.put("/api/stops/:date/notes", async (c) => {
+// Notes for a day / week / month. Day keys are plain dates and keep living
+// in stops.notes (pre-existing data); week-/month- keys go to period_notes.
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+app.get("/api/notes/:key", (c) => {
+  const key = c.req.param("key");
+  const notes = DAY_KEY.test(key)
+    ? (getOrEmptyStop(key).notes ?? "")
+    : getPeriodNotes(key);
+  return c.json({ key, notes });
+});
+
+app.put("/api/notes/:key", async (c) => {
+  const key = c.req.param("key");
   const { notes } = (await c.req.json()) as { notes: string };
-  return c.json(updateStopNotes(c.req.param("date"), notes ?? ""));
+  if (DAY_KEY.test(key)) updateStopNotes(key, notes ?? "");
+  else updatePeriodNotes(key, notes ?? "");
+  return c.json({ key, notes: notes ?? "" });
 });
 
 app.get("/api/items", (c) => {
@@ -338,11 +355,8 @@ app.post("/api/sync/calendar", async (c) => {
   }
 });
 
+// Settings are read-only over HTTP; edit settings.json directly.
 app.get("/api/settings", (c) => c.json(readSettings()));
-app.put("/api/settings", async (c) => {
-  const partial = await c.req.json();
-  return c.json(writeSettings(partial));
-});
 
 app.get("/api/sources", (c) =>
   c.json(

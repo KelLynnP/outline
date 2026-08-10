@@ -14,7 +14,7 @@ import { hueColors, tagColors } from "../colors.js";
 import { useToggle } from "../useToggle.js";
 
 interface Props {
-  weekStartISO: string; // Monday
+  weekStartISO: string;
   onSelectDay: (iso: string) => void;
   onDropTask?: (itemId: number, date: string) => void;
   /** When provided, drops land at the hour you release on (not 09:00). */
@@ -68,7 +68,12 @@ export function WeekCalendar({
       day.setDate(start.getDate() + i);
       return localDateISO(day);
     });
-    return weekend ? all : all.slice(0, 5); // Monday-start week: drop Sat+Sun
+    return weekend
+      ? all
+      : all.filter((date) => {
+          const day = new Date(date + "T00:00:00").getDay();
+          return day !== 0 && day !== 6;
+        });
   }, [weekStartISO, weekend]);
 
   const loadEvents = () =>

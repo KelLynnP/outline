@@ -29,6 +29,13 @@ db.exec(`
     notes TEXT
   );
 
+  -- week/month/year notes; day notes live in stops.notes.
+  -- key: "week-YYYY-MM-DD" (configured week start), "month-YYYY-MM", "year-YYYY"
+  CREATE TABLE IF NOT EXISTS period_notes (
+    key TEXT PRIMARY KEY,
+    notes TEXT NOT NULL DEFAULT ''
+  );
+
   CREATE TABLE IF NOT EXISTS signals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type TEXT NOT NULL,

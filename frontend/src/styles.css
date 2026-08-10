@@ -303,56 +303,6 @@ a:hover { color: var(--train); border-bottom-color: var(--train); }
   padding: 12px 0 12px 120px;
 }
 
-.settings {
-  display: grid;
-  grid-template-columns: 200px 1fr;
-  gap: 16px 32px;
-  align-items: baseline;
-}
-.settings h3 {
-  grid-column: 1 / -1;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  margin: 28px 0 8px;
-  color: var(--train);
-}
-.settings label {
-  font-family: var(--display);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-.settings input[type="number"], .settings input[type="text"], .settings select {
-  border: 2px solid var(--ink);
-  background: var(--card);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font: inherit;
-  font-family: var(--sans);
-  font-weight: 500;
-  width: 100%;
-  max-width: 240px;
-  outline: none;
-}
-.settings input:focus, .settings select:focus { border-color: var(--train); }
-.settings .toggle { display: flex; align-items: center; gap: 10px; }
-
-.footer {
-  margin-top: 80px;
-  font-family: var(--display);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ink-quiet);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  text-align: center;
-}
-
 /* ---------- shared: priority + tag chips ---------- */
 .prio-chip {
   display: inline-block;
@@ -618,7 +568,7 @@ button.tog.on {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  padding: 6px 24px;
+  padding: 6px 28px;
   margin: 0;
   border: none;
   background: transparent;
@@ -1800,9 +1750,50 @@ button.tog.on {
   .opt2-side { position: static; }
 }
 
-/* ---------- Opt 3: workboard (timeline + tasks + calendar + notes) ---------- */
-.app-opt3 { max-width: 1360px; padding: 72px 56px 120px; }
-.opt3 { display: flex; flex-direction: column; gap: 40px; }
+/* ---------- home page: workboard (timeline + tasks + calendar + notes) ---------- */
+.app-home { max-width: 1360px; padding: 28px 32px 64px; }
+.app-home .header { margin-bottom: 24px; }
+.home { display: flex; gap: 10px; align-items: flex-start; }
+.home .workboard { flex: 1; min-width: 0; }
+
+/* subtle rail: reorder the page sections below the timeline */
+.home-rail {
+  position: sticky;
+  top: 16px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  opacity: 0.35;
+  transition: opacity 120ms;
+}
+.home-rail:hover { opacity: 1; }
+.rail-item { display: flex; align-items: center; gap: 2px; }
+.rail-label {
+  flex: 1;
+  font-family: var(--display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding-right: 4px;
+}
+.rail-arrow {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-quiet);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.rail-arrow:hover { background: var(--line-soft); color: var(--ink); }
+.rail-arrow:disabled { opacity: 0.25; cursor: default; background: transparent; }
 
 .workboard {
   background: var(--card);
@@ -1813,7 +1804,7 @@ button.tog.on {
 }
 
 .workboard-timeline {
-  padding: 40px 48px 24px;
+  padding: 24px 28px 16px;
 }
 
 .workboard-head {
@@ -1821,7 +1812,7 @@ button.tog.on {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 28px;
-  padding: 14px 48px;
+  padding: 10px 28px;
   border-bottom: 1px solid var(--line-soft);
 }
 .workboard-head .view-toggle { justify-self: end; }
@@ -1884,8 +1875,8 @@ button.tog.on {
 .workboard-body {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
-  gap: 56px;
-  padding: 40px 48px;
+  gap: 36px;
+  padding: 20px 28px 28px;
 }
 .wb-tasks, .wb-cal { min-width: 0; }
 .wb-section-head {
@@ -1907,10 +1898,15 @@ button.tog.on {
 }
 
 .workboard-notes {
-  padding: 24px 48px 48px;
+  padding: 20px 28px 28px;
   border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
   background: #fbf9f4;
+}
+/* only round the card corners when notes is the last section */
+.workboard-notes:last-child {
   border-radius: 0 0 14px 14px;
+  border-bottom: none;
 }
 
 /* whitespace on task table + composer */
@@ -1943,8 +1939,29 @@ button.tog.on {
 }
 .drop-over-day { outline: 2px solid var(--accent); }
 
-/* ---------- DayNotes ---------- */
+/* ---------- PeriodNotes ---------- */
 .daynotes { display: flex; flex-direction: column; gap: 12px; }
+.daynotes-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+}
+.daynotes-actions,
+.daynotes-scopes { display: flex; align-items: center; gap: 3px; }
+.daynotes-scopes button {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-quiet);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+}
+.daynotes-scopes button:hover,
+.daynotes-scopes button.active { background: var(--line-soft); color: var(--ink); }
 .daynotes-head {
   display: flex;
   justify-content: space-between;
@@ -1967,21 +1984,227 @@ button.tog.on {
 .daynotes-status.saved { color: #2b7a4b; }
 .daynotes-input {
   width: 100%;
-  min-height: 160px;
+  min-height: 240px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: var(--card);
-  font: inherit;
+  outline: none;
+  overflow: hidden;
+  resize: vertical;
+  transition: border-color 120ms, background 120ms;
+}
+.daynotes-input:focus-within { border-color: var(--ink-quiet); }
+.daynotes-input .cm-editor { min-height: 240px; height: 100%; }
+.daynotes-input .cm-editor.cm-focused { outline: none; }
+.daynotes-input .cm-scroller {
+  overflow: auto;
   font-family: var(--sans);
   font-size: 15px;
   line-height: 1.65;
-  padding: 20px 24px;
-  resize: vertical;
-  outline: none;
-  transition: border-color 120ms;
 }
-.daynotes-input:focus { border-color: var(--ink-quiet); }
-.daynotes-input::placeholder { color: var(--ink-quiet); }
+.daynotes-input .cm-content {
+  min-height: 240px;
+  padding: 18px 20px 58px;
+  caret-color: var(--ink);
+}
+.daynotes-input .cm-line { padding: 0; }
+.daynotes-input .cm-placeholder { color: var(--ink-quiet); font-style: normal; }
+.daynotes-input .cm-cursor { border-left-color: var(--ink); }
+.daynotes-input .cm-selectionBackground,
+.daynotes-input .cm-content ::selection { background: #d8e5ef !important; }
+.daynotes-input .cm-foldPlaceholder {
+  border: 0;
+  background: transparent;
+  color: var(--ink-quiet);
+  padding: 0;
+}
+.daynotes-input .cm-note-fold-hidden { display: none; }
+.daynotes-loading {
+  min-height: 240px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 24px 28px;
+  color: var(--ink-quiet);
+}
+
+.note-editor { position: relative; }
+.note-formatbar {
+  position: absolute;
+  z-index: 4;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  opacity: 0.35;
+  transition: opacity 120ms;
+}
+.note-editor:focus-within .note-formatbar,
+.note-formatbar:hover { opacity: 1; }
+.note-formatbar button {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+.note-formatbar button:hover { background: var(--line-soft); color: var(--ink); }
+.note-formatbar .note-color {
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+  border-radius: 50%;
+}
+.note-format-divider {
+  width: 1px;
+  height: 17px;
+  margin: 0 2px;
+  background: var(--line-soft);
+}
+.note-formatbar .note-text-color {
+  width: 19px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.note-color.yellow, .cm-note-highlight.yellow { background: #f7e6a3; }
+.note-color.green, .cm-note-highlight.green { background: #cce7d2; }
+.note-color.blue, .cm-note-highlight.blue { background: #cde0ef; }
+.note-color.pink, .cm-note-highlight.pink { background: #f1d1dc; }
+.note-text-color.red, .cm-note-text.red { color: #ad433d; }
+.note-text-color.green, .cm-note-text.green { color: #3d7b50; }
+.note-text-color.blue, .cm-note-text.blue { color: #376f9c; }
+.note-text-color.purple, .cm-note-text.purple { color: #79569a; }
+.cm-note-highlight { border-radius: 3px; padding: 1px 0; }
+.cm-note-underline { text-decoration: underline; text-underline-offset: 3px; }
+.cm-note-strike { text-decoration: line-through; color: var(--ink-quiet); }
+.cm-note-heading { font-family: var(--display); font-weight: 700; }
+.cm-note-h1 { font-size: 1.55em; line-height: 1.5; }
+.cm-note-h2 { font-size: 1.3em; line-height: 1.55; }
+.cm-note-h3 { font-size: 1.12em; line-height: 1.6; }
+
+.daynotes-input .cm-note-bullet {
+  position: relative;
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin: 0 1px 0 -2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  vertical-align: -2px;
+  transform: none;
+}
+.daynotes-input .cm-note-bullet::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-soft);
+  transition: transform 120ms, background 120ms;
+}
+/* dots with nested content: colored + clickable; childless dots stay plain */
+.daynotes-input .cm-note-bullet.has-children { cursor: pointer; }
+.daynotes-input .cm-note-bullet.has-children::before { background: #c99b3f; }
+.daynotes-input .cm-note-bullet.has-children:hover::before {
+  background: #b98224;
+  transform: scale(1.35);
+}
+.daynotes-input .cm-note-bullet.folded::before {
+  background: #b98224;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #d6a950 30%, transparent);
+}
+
+/* side-by-side panes: the view-following note + any pinned periods */
+.daynotes-panes { display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch; }
+.notepane {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.notepane.pinned .daynotes-input { border-style: dashed; }
+/* row-icon is hover-revealed in task rows; in notes it's always visible */
+.daynotes .row-icon { color: var(--ink-quiet); }
+.daynotes-head-right { display: flex; align-items: center; gap: 6px; }
+.daynotes-pin { display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
+.pin-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-quiet);
+  cursor: pointer;
+}
+.pin-chip:hover { color: var(--ink); border-color: var(--ink-quiet); }
+
+.daynotes.dark {
+  --card: #1b1e20;
+  --ink: #ece8df;
+  --ink-soft: #c5c0b7;
+  --ink-quiet: #85837e;
+  --line-soft: #34383a;
+  margin: -20px -28px -28px;
+  padding: 20px 28px 28px;
+  border-radius: inherit;
+  background: #141617;
+}
+.daynotes.dark .daynotes-input .cm-editor { background: var(--card); color: var(--ink); }
+.daynotes.dark .daynotes-input .cm-selectionBackground,
+.daynotes.dark .daynotes-input .cm-content ::selection {
+  background: #344b5d !important;
+}
+.daynotes.dark .cm-note-highlight { color: #242424; }
+.daynotes.dark .note-text-color.red,
+.daynotes.dark .cm-note-text.red { color: #ed8b84; }
+.daynotes.dark .note-text-color.green,
+.daynotes.dark .cm-note-text.green { color: #83c993; }
+.daynotes.dark .note-text-color.blue,
+.daynotes.dark .cm-note-text.blue { color: #84b9df; }
+.daynotes.dark .note-text-color.purple,
+.daynotes.dark .cm-note-text.purple { color: #c49ae2; }
+.daynotes.focused {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 28px 5vw 72px;
+  border-radius: 0;
+  background: #fbf9f4;
+}
+.daynotes.focused.dark { background: #141617; }
+.daynotes.focused .daynotes-panes {
+  width: 100%;
+  margin: 0;
+}
+.daynotes.focused .notepane.pinned,
+.daynotes.focused .daynotes-pin { display: none; }
+.daynotes.focused .daynotes-controls {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.daynotes.focused .daynotes-input,
+.daynotes.focused .daynotes-input .cm-editor { min-height: calc(100vh - 150px); }
+.daynotes.focused .daynotes-input .cm-content { min-height: calc(100vh - 150px); }
 
 /* ---------- Roadmap ---------- */
 .roadmap {
@@ -2761,4 +2984,5 @@ button.tog.on {
 @media (max-width: 900px) {
   .workboard-body { grid-template-columns: 1fr; }
   .workboard-head { grid-template-columns: 1fr; gap: 8px; }
+  .home-rail { display: none; }
 }

@@ -34,10 +34,3 @@ export function readSettings(): Settings {
     return DEFAULT_SETTINGS;
   }
 }
-
-export function writeSettings(partial: unknown): Settings {
-  const current = readSettings();
-  const next = deepMerge(current, partial);
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(next, null, 2));
-  return next;
-}

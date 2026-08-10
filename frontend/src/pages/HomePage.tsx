@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   localDateISO,
+  startOfWeekISO,
   type CaughtItem,
   type LineView,
   type Settings,
@@ -12,23 +13,20 @@ import { DailyCalendar } from "../components/DailyCalendar.js";
 import { WeekCalendar } from "../components/WeekCalendar.js";
 import { MonthCalendar } from "../components/MonthCalendar.js";
 import { Roadmap } from "../components/Roadmap.js";
-import { DayNotes } from "../components/DayNotes.js";
+import { PeriodNotes } from "../components/PeriodNotes.js";
 import { TaskTable } from "../components/Tasks.js";
 import { useToggle } from "../useToggle.js";
 
 type ViewMode = "day" | "week" | "month";
 
+// Reorderable page blocks (the timeline on top is constant).
+type SectionKey = "tasks" | "notes";
+const SECTION_KEYS: SectionKey[] = ["tasks", "notes"];
+
 const DAY_MS = 86_400_000;
 const iso = localDateISO;
 
-function mondayOf(dateISO: string): string {
-  const d = new Date(dateISO + "T00:00:00");
-  const dow = d.getDay();
-  const diff = dow === 0 ? -6 : 1 - dow;
-  return iso(new Date(d.getTime() + diff * DAY_MS));
-}
-
-export function Opt3Page() {
+export function HomePage() {
   const [line, setLine] = useState<LineView | null>(null);
   const [today, setToday] = useState<TodayView | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -37,7 +35,23 @@ export function Opt3Page() {
   const [selectedDate, setSelectedDate] = useState<string>(() =>
     localDateISO(),
   );
-  const [tasksOpen, toggleTasksSection] = useToggle("opt3.tasksOpen", true);
+  const [tasksOpen, toggleTasksSection] = useToggle("home.tasksOpen", true);
+  const [notesOpen, toggleNotesSection] = useToggle("home.notesOpen", true);
+  const [order, setOrder] = useState<SectionKey[]>(() => {
+    const stored = (localStorage.getItem("home.sectionOrder") ?? "").split(",");
+    const valid = stored.filter(
+      (k, i): k is SectionKey =>
+        SECTION_KEYS.includes(k as SectionKey) && stored.indexOf(k) === i,
+    );
+    return valid.length === SECTION_KEYS.length ? valid : SECTION_KEYS;
+  });
+  const moveSection = (i: number, dir: -1 | 1) =>
+    setOrder((o) => {
+      const next = [...o];
+      [next[i], next[i + dir]] = [next[i + dir], next[i]];
+      localStorage.setItem("home.sectionOrder", next.join(","));
+      return next;
+    });
   // Bumped on every page-level reload so the calendars refetch their events
   // (they own their own fetches, e.g. after unschedule/complete from the board).
   const [calVersion, setCalVersion] = useState(0);
@@ -114,11 +128,15 @@ export function Opt3Page() {
   const jumpToday = () => setSelectedDate(localDateISO());
 
   const anchor = new Date(selectedDate + "T00:00:00");
+  const weekStart = startOfWeekISO(
+    selectedDate,
+    settings.calendar.week_starts_on,
+  );
   // The range the page is currently showing; the timeline highlights it.
   const selectedRange =
     view === "week"
       ? (() => {
-          const from = mondayOf(selectedDate);
+          const from = weekStart;
           return { from, to: iso(new Date(new Date(from + "T00:00:00").getTime() + 6 * DAY_MS)) };
         })()
       : view === "month"
@@ -136,14 +154,124 @@ export function Opt3Page() {
         })
       : view === "week"
         ? (() => {
-            const start = new Date(mondayOf(selectedDate) + "T00:00:00");
+            const start = new Date(weekStart + "T00:00:00");
             const end = new Date(start.getTime() + 6 * DAY_MS);
             return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
           })()
         : anchor.toLocaleString("en-US", { month: "long", year: "numeric" });
 
+  const sections: Record<SectionKey, ReactNode> = {
+    tasks: (
+      <>
+        <button className="section-toggle" onClick={toggleTasksSection}>
+          {tasksOpen ? "▾" : "▸"} tasks
+        </button>
+        {tasksOpen && (
+          <div className="workboard-body">
+            <div className="wb-tasks">
+              <TaskTable
+                items={items}
+                settings={settings}
+                onChange={load}
+                scheduleToday={(id) => scheduleTaskAtTime(id, today.date)}
+              />
+            </div>
+
+            <div className="wb-cal">
+              <div className="wb-section-head">
+                <span>
+                  {view === "day" ? "schedule" : view === "week" ? "week" : "month"}
+                </span>
+                <span className="date-chip">
+                  {today.date === selectedDate
+                    ? "today"
+                    : anchor.toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                </span>
+              </div>
+
+              {view === "day" && (
+                <DailyCalendar
+                  date={selectedDate}
+                  variant="widget"
+                  onDropTaskAtTime={scheduleTaskAtTime}
+                  onTaskChange={load}
+                  refreshKey={calVersion}
+                />
+              )}
+              {view === "week" && (
+                <WeekCalendar
+                  weekStartISO={weekStart}
+                  onSelectDay={(d) => {
+                    setSelectedDate(d);
+                    setView("day");
+                  }}
+                  onDropTaskAtTime={scheduleTaskAtTime}
+                  onDropTaskOnDay={assignTaskToDay}
+                  refreshKey={calVersion}
+                />
+              )}
+              {view === "month" && (
+                <MonthCalendar
+                  monthISO={selectedDate}
+                  onSelectDay={(d) => {
+                    setSelectedDate(d);
+                    setView("day");
+                  }}
+                  onDropTask={scheduleTaskOnDay}
+                />
+              )}
+
+              <Roadmap selectedISO={selectedDate} />
+            </div>
+          </div>
+        )}
+      </>
+    ),
+    notes: (
+      <>
+        <button className="section-toggle" onClick={toggleNotesSection}>
+          {notesOpen ? "▾" : "▸"} notes
+        </button>
+        {notesOpen && (
+          <div className="workboard-notes">
+            <PeriodNotes
+              date={selectedDate}
+              view={view}
+              weekStartsOn={settings.calendar.week_starts_on}
+            />
+          </div>
+        )}
+      </>
+    ),
+  };
+
   return (
-    <div className="opt3">
+    <div className="home">
+      <aside className="home-rail" title="section order">
+        {order.map((k, i) => (
+          <div key={k} className="rail-item">
+            <span className="rail-label">{k}</span>
+            <button
+              className="rail-arrow"
+              disabled={i === 0}
+              onClick={() => moveSection(i, -1)}
+            >
+              ↑
+            </button>
+            <button
+              className="rail-arrow"
+              disabled={i === order.length - 1}
+              onClick={() => moveSection(i, 1)}
+            >
+              ↓
+            </button>
+          </div>
+        ))}
+      </aside>
+
       <div className="workboard">
         {/* ---------------- timeline row ---------------- */}
         <div className="workboard-timeline">
@@ -193,81 +321,10 @@ export function Opt3Page() {
           </div>
         </div>
 
-        {/* ---------------- section toggle ---------------- */}
-        <button className="section-toggle" onClick={toggleTasksSection}>
-          {tasksOpen ? "▾" : "▸"} tasks
-        </button>
-
-        {tasksOpen && (
-        <>
-        {/* ---------------- tasks + calendar ---------------- */}
-        <div className="workboard-body">
-          <div className="wb-tasks">
-            <TaskTable
-              items={items}
-              settings={settings}
-              onChange={load}
-              scheduleToday={(id) => scheduleTaskAtTime(id, today.date)}
-            />
-          </div>
-
-          <div className="wb-cal">
-            <div className="wb-section-head">
-              <span>
-                {view === "day" ? "schedule" : view === "week" ? "week" : "month"}
-              </span>
-              <span className="date-chip">
-                {today.date === selectedDate
-                  ? "today"
-                  : anchor.toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    })}
-              </span>
-            </div>
-
-            {view === "day" && (
-              <DailyCalendar
-                date={selectedDate}
-                variant="widget"
-                onDropTaskAtTime={scheduleTaskAtTime}
-                onTaskChange={load}
-                refreshKey={calVersion}
-              />
-            )}
-            {view === "week" && (
-              <WeekCalendar
-                weekStartISO={mondayOf(selectedDate)}
-                onSelectDay={(d) => {
-                  setSelectedDate(d);
-                  setView("day");
-                }}
-                onDropTaskAtTime={scheduleTaskAtTime}
-                onDropTaskOnDay={assignTaskToDay}
-                refreshKey={calVersion}
-              />
-            )}
-            {view === "month" && (
-              <MonthCalendar
-                monthISO={selectedDate}
-                onSelectDay={(d) => {
-                  setSelectedDate(d);
-                  setView("day");
-                }}
-                onDropTask={scheduleTaskOnDay}
-              />
-            )}
-
-            <Roadmap selectedISO={selectedDate} />
-          </div>
-        </div>
-
-        {/* ---------------- notes for the day ---------------- */}
-        <div className="workboard-notes">
-          <DayNotes date={selectedDate} />
-        </div>
-        </>
-        )}
+        {/* ---------------- reorderable sections ---------------- */}
+        {order.map((k) => (
+          <Fragment key={k}>{sections[k]}</Fragment>
+        ))}
       </div>
     </div>
   );

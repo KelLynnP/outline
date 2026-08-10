@@ -390,6 +390,21 @@ export function upsertStop(stop: Stop) {
   );
 }
 
+// Week/month notes (day notes live in stops.notes — see /api/notes/:key).
+export function getPeriodNotes(key: string): string {
+  const row = db
+    .prepare(`SELECT notes FROM period_notes WHERE key = ?`)
+    .get(key) as { notes: string } | undefined;
+  return row?.notes ?? "";
+}
+
+export function updatePeriodNotes(key: string, notes: string) {
+  db.prepare(
+    `INSERT INTO period_notes (key, notes) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET notes = excluded.notes`,
+  ).run(key, notes);
+}
+
 export function updateStopNotes(date: string, notes: string): Stop {
   db.prepare(
     `INSERT INTO stops (date, notes) VALUES (?, ?)

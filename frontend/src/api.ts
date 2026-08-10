@@ -20,12 +20,15 @@ export const api = {
   line: () => fetch("/api/line").then((r) => j<LineView>(r)),
   today: () => fetch("/api/today").then((r) => j<TodayView>(r)),
   stop: (date: string) => fetch(`/api/stops/${date}`).then((r) => j<Stop>(r)),
-  saveNotes: (date: string, notes: string) =>
-    fetch(`/api/stops/${date}/notes`, {
+  // key: "YYYY-MM-DD" | "week-YYYY-MM-DD" (configured week start) | "month-YYYY-MM"
+  notes: (key: string) =>
+    fetch(`/api/notes/${key}`).then((r) => j<{ key: string; notes: string }>(r)),
+  saveNotes: (key: string, notes: string) =>
+    fetch(`/api/notes/${key}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ notes }),
-    }).then((r) => j<Stop>(r)),
+    }).then((r) => j<{ key: string; notes: string }>(r)),
   allItems: () => fetch("/api/items/all").then((r) => j<CaughtItem[]>(r)),
   addItem: (body: {
     text: string;
@@ -178,10 +181,4 @@ export const api = {
       body: JSON.stringify(body),
     }).then((r) => j<BodySignal>(r)),
   settings: () => fetch("/api/settings").then((r) => j<Settings>(r)),
-  saveSettings: (partial: unknown) =>
-    fetch("/api/settings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(partial),
-    }).then((r) => j<Settings>(r)),
 };
