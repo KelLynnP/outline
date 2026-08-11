@@ -143,11 +143,17 @@ export function getItem(id: number): CaughtItem | null {
   return row ? rowToItem(row) : null;
 }
 
+// Backlogged Linear issues never show anywhere — they keep syncing in the
+// background (so they reappear if pulled out of backlog upstream), and moving
+// a task to backlog from the detail modal makes it vanish from the board.
+const NOT_BACKLOG =
+  "NOT (source = 'linear' AND linear_state_type = 'backlog')";
+
 export function listOpenItems(): CaughtItem[] {
   return (
     db
       .prepare(
-        `SELECT * FROM items WHERE status IN ('open','carried')
+        `SELECT * FROM items WHERE status IN ('open','carried') AND ${NOT_BACKLOG}
          ORDER BY (tag = ?) DESC, priority ASC,
                   CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
                   due_date ASC, captured_date DESC`,
@@ -167,6 +173,7 @@ export function listAllItems(): CaughtItem[] {
         `SELECT i.*, e.date AS scheduled_date, e.start_time AS scheduled_time
          FROM items i
          LEFT JOIN events e ON e.source = 'task' AND e.item_id = i.id
+         WHERE NOT (i.source = 'linear' AND i.linear_state_type = 'backlog')
          ORDER BY i.captured_date DESC`,
       )
       .all() as Row[]
@@ -190,7 +197,7 @@ export function listFutureDatedItems(): CaughtItem[] {
   return (
     db
       .prepare(
-        "SELECT * FROM items WHERE due_date IS NOT NULL AND due_date >= ? AND status != 'closed' ORDER BY due_date",
+        `SELECT * FROM items WHERE due_date IS NOT NULL AND due_date >= ? AND status != 'closed' AND ${NOT_BACKLOG} ORDER BY due_date`,
       )
       .all(today) as ItemRow[]
   ).map(rowToItem);
