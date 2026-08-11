@@ -90,6 +90,22 @@ export const api = {
     fetch(`/api/items/${id}/linear`, { method: "DELETE" }).then((r) =>
       j<CaughtItem>(r),
     ),
+  updateLinearIssue: (
+    id: number,
+    body: {
+      title?: string;
+      description?: string | null;
+      team_id?: string;
+      assignee_id?: string | null;
+      priority?: number; // Linear scale 0-4
+      due_date?: string | null;
+    },
+  ) =>
+    fetch(`/api/items/${id}/linear`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => j<CaughtItem>(r)),
   setLinearState: (id: number, type: "backlog" | "unstarted" | "started") =>
     fetch(`/api/items/${id}/linear-state`, {
       method: "POST",

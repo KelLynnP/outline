@@ -54,6 +54,7 @@ import {
   fetchLinearTeams,
   linear,
   setLinearIssueState,
+  updateLinearIssue,
 } from "./adapters/linear.js";
 import { backupDir, fetchOpenTodosFromBackup } from "./adapters/heptabase-backup.js";
 import { fileURLToPath } from "node:url";
@@ -212,6 +213,43 @@ app.delete("/api/items/:id/linear", (c) => {
   const item = detachLinearItem(Number(c.req.param("id")));
   if (!item) return c.json({ error: "not_found" }, 404);
   return c.json(item);
+});
+
+// Edit a linear row's issue in Linear (detail modal): title/description/team/
+// assignee/priority/due date. Pushes upstream, then refreshes the local row
+// from the returned issue (team moves change the identifier too).
+app.patch("/api/items/:id/linear", async (c) => {
+  const id = Number(c.req.param("id"));
+  const item = getItem(id);
+  if (!item) return c.json({ error: "not_found" }, 404);
+  if (item.source !== "linear" || !item.external_id) {
+    return c.json({ error: "not_linear" }, 400);
+  }
+  const body = (await c.req.json()) as {
+    title?: string;
+    description?: string | null;
+    team_id?: string;
+    assignee_id?: string | null;
+    priority?: number; // Linear scale 0-4
+    due_date?: string | null;
+  };
+  const input: Parameters<typeof updateLinearIssue>[1] = {};
+  if (body.title?.trim()) input.title = body.title.trim();
+  if (body.description !== undefined) {
+    input.description = body.description?.trim() || null;
+  }
+  if (body.team_id) input.teamId = body.team_id;
+  if (body.assignee_id !== undefined) input.assigneeId = body.assignee_id;
+  if (body.priority !== undefined) input.priority = body.priority;
+  if (body.due_date !== undefined) input.dueDate = body.due_date || null;
+  if (Object.keys(input).length === 0) return c.json(item);
+  try {
+    const issue = await updateLinearIssue(item.external_id, input);
+    return c.json(linkItemToLinear(id, issue));
+  } catch (e) {
+    console.error("linear_update", e);
+    return c.json({ error: String(e) }, 502);
+  }
 });
 
 // Move a linear row's issue to backlog / todo / in progress. Push upstream,

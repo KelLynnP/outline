@@ -917,23 +917,84 @@ function TaskDetailModal({
   const isLinear = item.source === "linear";
   const [title, setTitle] = useState(item.text);
   const [description, setDescription] = useState(item.description ?? "");
+  // Linear-side fields (only used when isLinear).
+  const [teams, setTeams] = useState<LinearTeam[] | null>(null);
+  const [teamId, setTeamId] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
+  // Best-effort reverse of the P1-3 mapping (urgent tag → urgent).
+  const initPriority =
+    item.tag === "#c!" ? 1 : item.priority === 1 ? 2 : item.priority === 2 ? 3 : 4;
+  const [priority, setPriority] = useState(initPriority);
+  const [dueDate, setDueDate] = useState(item.due_date ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEscape(onClose);
-  const dirty =
-    !isLinear &&
-    (title.trim() !== item.text ||
-      (description.trim() || null) !== (item.description ?? null));
+
+  useEffect(() => {
+    if (!isLinear) return;
+    api
+      .linearTeams()
+      .then((t) => {
+        setTeams(t);
+        const cur = t.find((x) => x.key === item.linear_team);
+        if (cur) {
+          setTeamId(cur.id);
+          setAssigneeId(
+            cur.members.find((m) => m.name === item.assignee)?.id ?? "",
+          );
+        }
+      })
+      .catch((e) => setError(String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLinear]);
+
+  const initTeam = teams?.find((t) => t.key === item.linear_team);
+  const initTeamId = initTeam?.id ?? "";
+  const initAssigneeId =
+    initTeam?.members.find((m) => m.name === item.assignee)?.id ?? "";
+  const selectedTeam = teams?.find((t) => t.id === teamId);
+
+  const textDirty =
+    title.trim() !== item.text ||
+    (description.trim() || null) !== (item.description ?? null);
+  const linearDirty =
+    isLinear &&
+    (Boolean(teamId && teamId !== initTeamId) ||
+      assigneeId !== initAssigneeId ||
+      priority !== initPriority ||
+      (dueDate || null) !== (item.due_date ?? null));
+  const dirty = textDirty || linearDirty;
 
   const save = async () => {
     if (!dirty || busy || !title.trim()) return;
     setBusy(true);
-    await api.updateItem(item.id, {
-      text: title.trim(),
-      description: description.trim() || null,
-    });
-    onChange();
-    onClose();
+    setError(null);
+    try {
+      if (isLinear) {
+        const body: Parameters<typeof api.updateLinearIssue>[1] = {};
+        if (title.trim() !== item.text) body.title = title.trim();
+        if ((description.trim() || null) !== (item.description ?? null)) {
+          body.description = description.trim() || null;
+        }
+        if (teamId && teamId !== initTeamId) body.team_id = teamId;
+        if (assigneeId !== initAssigneeId) body.assignee_id = assigneeId || null;
+        if (priority !== initPriority) body.priority = priority;
+        if ((dueDate || null) !== (item.due_date ?? null)) {
+          body.due_date = dueDate || null;
+        }
+        await api.updateLinearIssue(item.id, body);
+      } else {
+        await api.updateItem(item.id, {
+          text: title.trim(),
+          description: description.trim() || null,
+        });
+      }
+      onChange();
+      onClose();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
   };
 
   return (
@@ -961,15 +1022,84 @@ function TaskDetailModal({
           )}
         </div>
         {error && <div className="linear-modal-error">{error}</div>}
-        {isLinear ? (
+        <label>
+          title
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+          />
+        </label>
+        <label>
+          description
+          <textarea
+            rows={isLinear ? 4 : 5}
+            value={description}
+            placeholder="add more detail…"
+            onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={(e) =>
+              e.key === "Enter" && (e.metaKey || e.ctrlKey) && save()
+            }
+          />
+        </label>
+        {isLinear && (
           <>
-            <div className="linear-modal-task">{item.text}</div>
-            {item.description ? (
-              <div className="task-detail-desc">{item.description}</div>
-            ) : (
-              <div className="quiet">no description</div>
-            )}
-            <div className="quiet">synced from Linear — edit title/description there.</div>
+            <div className="linear-modal-grid">
+              <label>
+                team
+                <select
+                  value={teamId}
+                  disabled={!teams}
+                  onChange={(e) => {
+                    setTeamId(e.target.value);
+                    setAssigneeId("");
+                  }}
+                >
+                  {(teams ?? []).map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.key})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                assignee
+                <select
+                  value={assigneeId}
+                  disabled={!teams}
+                  onChange={(e) => setAssigneeId(e.target.value)}
+                >
+                  <option value="">unassigned</option>
+                  {(selectedTeam?.members ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                priority
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(Number(e.target.value))}
+                >
+                  {LINEAR_PRIORITIES.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                due date
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                />
+              </label>
+            </div>
             {item.status !== "closed" && (
               <div className="task-detail-states">
                 <span className="quiet">state:</span>
@@ -1006,41 +1136,20 @@ function TaskDetailModal({
               </div>
             )}
           </>
-        ) : (
-          <>
-            <label>
-              title
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && save()}
-              />
-            </label>
-            <label>
-              description
-              <textarea
-                rows={5}
-                value={description}
-                placeholder="add more detail…"
-                onChange={(e) => setDescription(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" && (e.metaKey || e.ctrlKey) && save()
-                }
-              />
-            </label>
-          </>
         )}
         <div className="task-detail-meta">
-          {item.kind !== "note" && (
+          {!isLinear && item.kind !== "note" && (
             <span className={`prio-chip prio-${item.priority}`}>
               P{item.priority}
             </span>
           )}
-          {item.tag === "#c!" && <span className="due-chip overdue">urgent</span>}
-          {item.linear_team && <span className="tag-chip">{item.linear_team}</span>}
-          {item.linear_state && <span className="tag-chip">{item.linear_state}</span>}
-          {item.assignee && <span className="tag-chip">@{item.assignee}</span>}
-          {item.due_date && (
+          {!isLinear && item.tag === "#c!" && (
+            <span className="due-chip overdue">urgent</span>
+          )}
+          {!isLinear && item.assignee && (
+            <span className="tag-chip">@{item.assignee}</span>
+          )}
+          {!isLinear && item.due_date && (
             <span className="due-chip later">due {shortDate(item.due_date)}</span>
           )}
           {item.scheduled_date && (
@@ -1061,11 +1170,13 @@ function TaskDetailModal({
         </div>
         <div className="linear-modal-actions">
           <button onClick={onClose}>close</button>
-          {!isLinear && (
-            <button className="primary" disabled={!dirty || busy} onClick={save}>
-              save
-            </button>
-          )}
+          <button
+            className="primary"
+            disabled={!dirty || busy || !title.trim()}
+            onClick={save}
+          >
+            {busy ? "saving…" : "save"}
+          </button>
         </div>
       </div>
     </div>

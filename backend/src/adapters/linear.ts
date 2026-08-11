@@ -135,6 +135,37 @@ export async function createLinearIssue(input: {
   return nodeToIssue(data.issueCreate.issue);
 }
 
+// Edit an issue in place (detail modal): title, description, team (moves the
+// issue — identifier changes), assignee (null = unassign), priority, due date.
+// Returns the updated issue so the local row can be refreshed from it.
+export async function updateLinearIssue(
+  externalId: string,
+  input: {
+    title?: string;
+    description?: string | null;
+    teamId?: string;
+    assigneeId?: string | null;
+    priority?: number; // Linear scale 0-4
+    dueDate?: string | null;
+  },
+): Promise<LinearIssue> {
+  const data = await gql<{
+    issueUpdate: { success: boolean; issue: IssueNode | null };
+  }>(
+    `mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {
+      issueUpdate(id: $id, input: $input) {
+        success
+        issue { ${ISSUE_FIELDS} }
+      }
+    }`,
+    { id: externalId, input },
+  );
+  if (!data.issueUpdate.success || !data.issueUpdate.issue) {
+    throw new Error("linear issueUpdate failed");
+  }
+  return nodeToIssue(data.issueUpdate.issue);
+}
+
 // Move an issue to its team's first state of the given type. Used to push a
 // local check-off ("completed"), reopen ("unstarted"), or the detail modal's
 // backlog / todo / in-progress buttons — so the next sync doesn't undo it.
