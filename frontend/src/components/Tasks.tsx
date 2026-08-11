@@ -651,6 +651,12 @@ function Row({
           {item.linear_identifier}
         </a>
       )}
+      {isLinear && !done && item.linear_state_type === "backlog" && (
+        <span className="chip state-chip">backlog</span>
+      )}
+      {isLinear && !done && item.linear_state_type === "started" && (
+        <span className="chip state-chip started">{item.linear_state ?? "in progress"}</span>
+      )}
       {editTags !== null ? (
         <input
           className="tag-edit-input"
@@ -966,36 +972,37 @@ function TaskDetailModal({
             <div className="quiet">synced from Linear — edit title/description there.</div>
             {item.status !== "closed" && (
               <div className="task-detail-states">
-                <span className="quiet">
-                  {item.linear_state ?? "state"} → move to:
-                </span>
+                <span className="quiet">state:</span>
                 {(
                   [
                     ["backlog", "backlog"],
                     ["unstarted", "todo"],
                     ["started", "in progress"],
                   ] as const
-                ).map(([type, label]) => (
-                  <button
-                    key={type}
-                    className="tog"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      setError(null);
-                      try {
-                        await api.setLinearState(item.id, type);
-                        onChange();
-                      } catch (e) {
-                        setError(String(e));
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
+                ).map(([type, label]) => {
+                  const current = item.linear_state_type === type;
+                  return (
+                    <button
+                      key={type}
+                      className={`tog ${current ? "on" : ""}`}
+                      disabled={busy || current}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError(null);
+                        try {
+                          await api.setLinearState(item.id, type);
+                          onChange();
+                        } catch (e) {
+                          setError(String(e));
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {current ? item.linear_state ?? label : label}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </>

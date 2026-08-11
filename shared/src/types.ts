@@ -30,6 +30,7 @@ export interface CaughtItem {
   linear_identifier: string | null; // "NON-123"
   linear_team: string | null; // team key, for the team filter
   linear_state: string | null; // workflow state name ("Backlog", "In Progress")
+  linear_state_type: string | null; // backlog | unstarted | started | triage
   // Set when a "task" calendar event exists for this item (see listAllItems).
   scheduled_date?: string | null; // YYYY-MM-DD
   scheduled_time?: string | null; // HH:MM

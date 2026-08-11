@@ -38,7 +38,7 @@ async function gql<T>(
 const ISSUE_FIELDS = `id identifier title description url dueDate priority
         team { key }
         assignee { displayName }
-        state { name }`;
+        state { name type }`;
 
 const ISSUES_QUERY = `
   query Issues($filter: IssueFilter, $after: String) {
@@ -59,7 +59,7 @@ type IssueNode = {
   priority: number | null;
   team: { key: string } | null;
   assignee: { displayName: string } | null;
-  state: { name: string } | null;
+  state: { name: string; type: string } | null;
 };
 
 const nodeToIssue = (n: IssueNode): LinearIssue => ({
@@ -73,6 +73,7 @@ const nodeToIssue = (n: IssueNode): LinearIssue => ({
   priority: n.priority ?? 0,
   url: n.url,
   state: n.state?.name ?? null,
+  state_type: n.state?.type ?? null,
 });
 
 // Teams + active members, for the send-to-Linear modal.

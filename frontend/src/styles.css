@@ -3129,6 +3129,16 @@ button.tog.on {
   font-size: 11px;
   color: var(--ink-quiet);
 }
+.task-row .state-chip {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-quiet);
+}
+.task-row .state-chip.started {
+  background: #e6f4ea;
+  border-color: transparent;
+  color: #2b7a4b;
+}
 .linear-modal.task-detail { width: 440px; }
 .linear-modal.task-detail input {
   font: inherit;

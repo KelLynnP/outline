@@ -57,6 +57,7 @@ export interface LinearIssue {
   priority: number; // Linear scale: 0 none, 1 urgent, 2 high, 3 medium, 4 low
   url: string;
   state: string | null; // workflow state name, e.g. "Backlog", "In Progress"
+  state_type: string | null; // backlog | unstarted | started | triage
 }
 
 export interface MealEvent {
