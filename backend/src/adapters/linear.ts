@@ -107,6 +107,25 @@ export async function createLinearIssue(input: {
   dueDate?: string | null;
   description?: string | null;
 }): Promise<LinearIssue> {
+  // Some teams default new issues to Backlog, which the console hides — a
+  // ticket created from the board would be born invisible. Start console-
+  // created issues in the team's first Todo (unstarted) state instead.
+  let stateId: string | undefined;
+  try {
+    const states = await gql<{
+      team: { states: { nodes: { id: string; type: string; position: number }[] } };
+    }>(
+      `query TeamStates($id: String!) {
+        team(id: $id) { states { nodes { id type position } } }
+      }`,
+      { id: input.teamId },
+    );
+    stateId = states.team.states.nodes
+      .filter((s) => s.type === "unstarted")
+      .sort((a, b) => a.position - b.position)[0]?.id;
+  } catch {
+    // fall back to the team default state
+  }
   const data = await gql<{
     issueCreate: { success: boolean; issue: IssueNode | null };
   }>(
@@ -120,6 +139,7 @@ export async function createLinearIssue(input: {
       input: {
         teamId: input.teamId,
         title: input.title,
+        ...(stateId ? { stateId } : {}),
         ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
         ...(input.priority != null ? { priority: input.priority } : {}),
         ...(input.dueDate ? { dueDate: input.dueDate } : {}),
