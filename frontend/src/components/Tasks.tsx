@@ -1453,6 +1453,7 @@ function LinearComposer({
   const [priority, setPriority] = useState<Priority>(2);
   const [teams, setTeams] = useState<LinearTeam[] | null>(null);
   const [teamId, setTeamId] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1464,7 +1465,10 @@ function LinearComposer({
     if (!teams) return;
     const preferred = teams.find((t) => t.key === teamKey) ?? teams[0];
     if (preferred) setTeamId(preferred.id);
+    setAssigneeId("");
   }, [teams, teamKey]);
+
+  const selectedTeam = teams?.find((t) => t.id === teamId);
 
   const submit = async () => {
     if (!text.trim() || !teamId || busy) return;
@@ -1475,6 +1479,7 @@ function LinearComposer({
         team_id: teamId,
         title: text.trim(),
         description: description || null,
+        assignee_id: assigneeId || null,
         priority: priority + 1, // P1→high, P2→medium, P3→low
         due_date: dueDate || null,
       });
@@ -1482,6 +1487,7 @@ function LinearComposer({
       setDescription("");
       setDueDate("");
       setPriority(2);
+      setAssigneeId("");
       onCreated();
     } catch (e) {
       setError(String(e));
@@ -1526,11 +1532,28 @@ function LinearComposer({
           title="team"
           value={teamId}
           disabled={!teams}
-          onChange={(e) => setTeamId(e.target.value)}
+          onChange={(e) => {
+            setTeamId(e.target.value);
+            setAssigneeId("");
+          }}
         >
           {(teams ?? []).map((t) => (
             <option key={t.id} value={t.id}>
               {t.key}
+            </option>
+          ))}
+        </select>
+        <select
+          className="tb-composer-team"
+          title="assignee"
+          value={assigneeId}
+          disabled={!teams}
+          onChange={(e) => setAssigneeId(e.target.value)}
+        >
+          <option value="">@unassigned</option>
+          {(selectedTeam?.members ?? []).map((m) => (
+            <option key={m.id} value={m.id}>
+              @{m.name}
             </option>
           ))}
         </select>
