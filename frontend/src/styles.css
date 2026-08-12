@@ -1259,6 +1259,15 @@ button.tog.on {
 }
 .tb-composer-desc:focus { border-bottom: 1px solid var(--ink); color: var(--ink); }
 .tb-composer-spacer { flex: 1; }
+.tb-composer-team {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+}
 .tb-composer-text {
   flex: 1;
   min-width: 140px;

@@ -300,7 +300,14 @@ export function TaskTable({
           onCancel={() => setNewLinear(false)}
         />
       )}
-      {!linearView && <Composer settings={settings} onCreated={onChange} />}
+      {linearView ? (
+        <LinearComposer
+          teamKey={team === "all" ? null : team}
+          onCreated={onChange}
+        />
+      ) : (
+        <Composer settings={settings} onCreated={onChange} />
+      )}
       <Section
         id="today"
         label="today"
@@ -1426,6 +1433,117 @@ function SubComposer({
       <button className="tb-add" onClick={submit} disabled={!text.trim()}>
         add
       </button>
+    </div>
+  );
+}
+
+/* Same shape as the regular composer, but enter creates a Linear issue
+   directly (team = the view's filter, unassigned). Open the task afterwards
+   — or use "+ new task" — for the full modal with assignee etc. */
+function LinearComposer({
+  teamKey,
+  onCreated,
+}: {
+  teamKey: string | null;
+  onCreated: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [priority, setPriority] = useState<Priority>(2);
+  const [teams, setTeams] = useState<LinearTeam[] | null>(null);
+  const [teamId, setTeamId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.linearTeams().then(setTeams).catch((e) => setError(String(e)));
+  }, []);
+  // Follow the view's team filter as it changes.
+  useEffect(() => {
+    if (!teams) return;
+    const preferred = teams.find((t) => t.key === teamKey) ?? teams[0];
+    if (preferred) setTeamId(preferred.id);
+  }, [teams, teamKey]);
+
+  const submit = async () => {
+    if (!text.trim() || !teamId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.newLinearIssue({
+        team_id: teamId,
+        title: text.trim(),
+        description: description || null,
+        priority: priority + 1, // P1→high, P2→medium, P3→low
+        due_date: dueDate || null,
+      });
+      setText("");
+      setDescription("");
+      setDueDate("");
+      setPriority(2);
+      onCreated();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="tb-composer">
+      <div className="tb-composer-row">
+        <input
+          className="tb-composer-text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="linear task title — enter to create"
+        />
+      </div>
+      <textarea
+        className="tb-composer-desc"
+        rows={2}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit()}
+        placeholder="description (optional) — ⌘enter to create"
+      />
+      <div className="tb-composer-row">
+        <PrioBars
+          priority={priority}
+          onClick={() => setPriority(((priority % 3) + 1) as Priority)}
+        />
+        <input
+          type="date"
+          className="tb-composer-date"
+          title="due date"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+        />
+        <select
+          className="tb-composer-team"
+          title="team"
+          value={teamId}
+          disabled={!teams}
+          onChange={(e) => setTeamId(e.target.value)}
+        >
+          {(teams ?? []).map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.key}
+            </option>
+          ))}
+        </select>
+        {error && <span className="linear-modal-error">{error}</span>}
+        <span className="tb-composer-spacer" />
+        <button
+          className="tb-add"
+          onClick={submit}
+          disabled={!text.trim() || !teamId || busy}
+        >
+          {busy ? "adding…" : "add"}
+        </button>
+      </div>
     </div>
   );
 }
