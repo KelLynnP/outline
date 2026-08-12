@@ -3140,7 +3140,7 @@ button.tog.on {
   color: #2b7a4b;
 }
 .linear-modal.task-detail { width: 440px; }
-.linear-modal.task-detail input {
+.linear-modal input {
   font: inherit;
   font-size: 14px;
   color: var(--ink);

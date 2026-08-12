@@ -186,18 +186,20 @@ app.post("/api/items/:id/linear", async (c) => {
   if (item.source === "linear") return c.json({ error: "already_linear" }, 400);
   const body = (await c.req.json()) as {
     team_id: string;
+    title?: string; // optional override — modal lets you edit before sending
     assignee_id?: string | null;
     priority?: number; // Linear scale 0-4
     description?: string | null;
+    due_date?: string | null;
   };
   if (!body?.team_id) return c.json({ error: "team_required" }, 400);
   try {
     const issue = await createLinearIssue({
       teamId: body.team_id,
-      title: item.text,
+      title: body.title?.trim() || item.text,
       assigneeId: body.assignee_id,
       priority: body.priority,
-      dueDate: item.due_date,
+      dueDate: body.due_date !== undefined ? body.due_date : item.due_date,
       // The modal prefills with the task's own description; fall back to it.
       description: body.description ?? item.description,
     });

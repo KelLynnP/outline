@@ -76,9 +76,11 @@ export const api = {
     id: number,
     body: {
       team_id: string;
+      title?: string;
       assignee_id?: string | null;
       priority?: number; // Linear scale 0-4
       description?: string | null;
+      due_date?: string | null;
     },
   ) =>
     fetch(`/api/items/${id}/linear`, {

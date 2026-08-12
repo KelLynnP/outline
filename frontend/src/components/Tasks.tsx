@@ -220,6 +220,7 @@ export function TaskTable({
   // View filter: everything, or only Linear-synced rows (optionally one team).
   const [linearView, toggleLinearView] = useToggle("tasks.view.linear", false);
   const [team, setTeam] = useState("all");
+  const [newLinear, setNewLinear] = useState(false);
   const teams = [...new Set(items.map((i) => i.linear_team).filter(Boolean))].sort() as string[];
   const visible = linearView
     ? items.filter(
@@ -281,9 +282,23 @@ export function TaskTable({
               >
                 ↻
               </button>
+              <button className="tb-add" onClick={() => setNewLinear(true)}>
+                + new task
+              </button>
             </>
           )}
         </div>
+      )}
+      {newLinear && (
+        <LinearSendModal
+          draft={{ text: "", description: null, due_date: null, priority: 2 }}
+          defaultTeamKey={team === "all" ? null : team}
+          onDone={() => {
+            setNewLinear(false);
+            onChange();
+          }}
+          onCancel={() => setNewLinear(false)}
+        />
       )}
       {!linearView && <Composer settings={settings} onCreated={onChange} />}
       <Section
@@ -1205,22 +1220,26 @@ type LinearDraft = {
   priority: Priority;
 };
 
-function LinearSendModal({
+export function LinearSendModal({
   draft,
   itemId,
+  defaultTeamKey,
   onDone,
   onCancel,
 }: {
   draft: LinearDraft;
   itemId?: number; // set = convert this existing task
+  defaultTeamKey?: string | null; // preselect (e.g. the linear view's team filter)
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const [title, setTitle] = useState(draft.text);
   const [teams, setTeams] = useState<LinearTeam[] | null>(null);
   const [teamId, setTeamId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
   // Default from the local P1-3: P1→high, P2→medium, P3→low.
   const [priority, setPriority] = useState(draft.priority + 1);
+  const [dueDate, setDueDate] = useState(draft.due_date ?? "");
   const [description, setDescription] = useState(draft.description ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1231,31 +1250,35 @@ function LinearSendModal({
       .linearTeams()
       .then((t) => {
         setTeams(t);
-        if (t[0]) setTeamId(t[0].id);
+        const preferred = t.find((x) => x.key === defaultTeamKey) ?? t[0];
+        if (preferred) setTeamId(preferred.id);
       })
       .catch((e) => setError(String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const team = teams?.find((t) => t.id === teamId);
   const submit = async () => {
-    if (!teamId || busy) return;
+    if (!teamId || !title.trim() || busy) return;
     setBusy(true);
     try {
       if (itemId != null) {
         await api.sendToLinear(itemId, {
           team_id: teamId,
+          title: title.trim(),
           assignee_id: assigneeId || null,
           priority,
           description: description || null,
+          due_date: dueDate || null,
         });
       } else {
         await api.newLinearIssue({
           team_id: teamId,
-          title: draft.text,
+          title: title.trim(),
           description: description || null,
           assignee_id: assigneeId || null,
           priority,
-          due_date: draft.due_date,
+          due_date: dueDate || null,
         });
       }
       onDone();
@@ -1274,46 +1297,18 @@ function LinearSendModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="linear-modal-title">
-          {itemId != null ? "send to linear" : "new linear issue"}
+          {itemId != null ? "send to linear" : "new linear task"}
         </div>
-        <div className="linear-modal-task">{draft.text}</div>
         {error && <div className="linear-modal-error">{error}</div>}
         <label>
-          team
-          <select
-            value={teamId}
-            onChange={(e) => {
-              setTeamId(e.target.value);
-              setAssigneeId("");
-            }}
-          >
-            {(teams ?? []).map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} ({t.key})
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          assignee
-          <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-            <option value="">unassigned</option>
-            {(team?.members ?? []).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          priority
-          <select value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
-            {LINEAR_PRIORITIES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          title
+          <input
+            autoFocus={!draft.text}
+            value={title}
+            placeholder="what needs doing?"
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
         </label>
         <label>
           description
@@ -1324,12 +1319,68 @@ function LinearSendModal({
             onChange={(e) => setDescription(e.target.value)}
           />
         </label>
-        {draft.due_date && (
-          <div className="quiet">due date ({shortDate(draft.due_date)}) carries over</div>
-        )}
+        <div className="linear-modal-grid">
+          <label>
+            team
+            <select
+              value={teamId}
+              disabled={!teams}
+              onChange={(e) => {
+                setTeamId(e.target.value);
+                setAssigneeId("");
+              }}
+            >
+              {(teams ?? []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({t.key})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            assignee
+            <select
+              value={assigneeId}
+              disabled={!teams}
+              onChange={(e) => setAssigneeId(e.target.value)}
+            >
+              <option value="">unassigned</option>
+              {(team?.members ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            priority
+            <select
+              value={priority}
+              onChange={(e) => setPriority(Number(e.target.value))}
+            >
+              {LINEAR_PRIORITIES.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            due date
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+          </label>
+        </div>
         <div className="linear-modal-actions">
           <button onClick={onCancel}>cancel</button>
-          <button className="primary" disabled={!teamId || busy} onClick={submit}>
+          <button
+            className="primary"
+            disabled={!teamId || !title.trim() || busy}
+            onClick={submit}
+          >
             {busy ? "sending…" : "create issue"}
           </button>
         </div>
