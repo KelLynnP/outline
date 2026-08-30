@@ -8,6 +8,7 @@ import type { EditorView } from "@codemirror/view";
 import {
   changeLineIndent,
   cleanFormatting,
+  clearFormatting,
   continueBullet,
   formattingJanitor,
   insertJournalNewline,
@@ -102,6 +103,34 @@ function makeView(doc: string, cursor: number) {
     view.state.doc.toString(),
     "<u>hello</u>\n",
   );
+}
+
+{
+  const view = makeView("- <u>hello</u>", 10); // cursor at end of underlined text
+  continueBullet(view);
+  check(
+    "enter at end of formatting → new bullet starts unformatted",
+    view.state.doc.toString(),
+    "- <u>hello</u>\n- ",
+  );
+}
+
+{
+  const view = makeView("<u>hello </u>", 8); // trailing space inside wrapper
+  insertJournalNewline(view);
+  check(
+    "enter before trailing space → new line starts unformatted",
+    view.state.doc.toString(),
+    "<u>hello</u>\n ",
+  );
+}
+
+// --- Clear formatting ---------------------------------------------------------
+
+{
+  const view = makeView('<u>a</u> and <mark data-color="green">b</mark>', 0);
+  clearFormatting(view);
+  check("clear formatting strips every tag on the line", view.state.doc.toString(), "a and b");
 }
 
 // --- Tab / Shift-Tab ---------------------------------------------------------

@@ -6,7 +6,9 @@ import {
 import { api } from "../api.js";
 import { MarkdownNoteEditor } from "./MarkdownNoteEditor.js";
 
-type Scope = "day" | "week" | "month" | "year";
+type Scope = "day" | "week" | "month" | "year" | "media";
+
+const SCOPES: Scope[] = ["day", "week", "month", "year", "media"];
 
 const DAY_MS = 86_400_000;
 
@@ -14,7 +16,8 @@ const short = (d: Date) =>
   d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 /** Note key for a scope anchored at a date. Day = plain date (stops.notes);
- *  week/month/year prefix keys go to period_notes. */
+ *  week/month/year prefix keys go to period_notes. Media log is a single
+ *  timeless note under the fixed key "media-log". */
 function keyFor(scope: Scope, date: string, weekStartsOn: WeekStart): string {
   return scope === "day"
     ? date
@@ -22,17 +25,21 @@ function keyFor(scope: Scope, date: string, weekStartsOn: WeekStart): string {
       ? `week-${startOfWeekISO(date, weekStartsOn)}`
       : scope === "month"
         ? `month-${date.slice(0, 7)}`
-        : `year-${date.slice(0, 4)}`;
+        : scope === "year"
+          ? `year-${date.slice(0, 4)}`
+          : "media-log";
 }
 
 const scopeOf = (key: string): Scope =>
-  key.startsWith("week-")
-    ? "week"
-    : key.startsWith("month-")
-      ? "month"
-      : key.startsWith("year-")
-        ? "year"
-        : "day";
+  key === "media-log"
+    ? "media"
+    : key.startsWith("week-")
+      ? "week"
+      : key.startsWith("month-")
+        ? "month"
+        : key.startsWith("year-")
+          ? "year"
+          : "day";
 
 function labelFor(key: string): string {
   switch (scopeOf(key)) {
@@ -54,6 +61,8 @@ function labelFor(key: string): string {
       });
     case "year":
       return key.slice(5);
+    case "media":
+      return "media log";
   }
 }
 
@@ -112,7 +121,7 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
     <div className={`daynotes${focused ? " focused" : ""}${dark ? " dark" : ""}`}>
       <div className="daynotes-controls">
         <div className="daynotes-scopes" aria-label="Note period">
-          {(["day", "week", "month", "year"] as Scope[]).map((option) => (
+          {SCOPES.map((option) => (
             <button
               key={option}
               type="button"
@@ -161,7 +170,7 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
           ))}
         <div className="daynotes-pin">
           {picking ? (
-            (["day", "week", "month", "year"] as Scope[]).map((s) => (
+            SCOPES.map((s) => (
               <button
                 key={s}
                 className="pin-chip"
@@ -282,7 +291,11 @@ function NotePane({
       ) : (
         <MarkdownNoteEditor
           initialValue={value}
-          emptyText={`anything — reflections, plans, half-thoughts. writes stay on this ${scopeOf(noteKey)}.`}
+          emptyText={
+            noteKey === "media-log"
+              ? "books, shows, films, music — whatever you're taking in."
+              : `anything — reflections, plans, half-thoughts. writes stay on this ${scopeOf(noteKey)}.`
+          }
           onChange={(next) => {
             valueRef.current = next;
             dirtyRef.current = true;

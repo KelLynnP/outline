@@ -59,12 +59,15 @@ const listFolding = foldService.of((state, lineStart) =>
   listFoldRange(state, lineStart),
 );
 
-function isFolded(state: EditorState, range: FoldRange): boolean {
-  let found = false;
+/** All existing folds overlapping `range`. Edits can shift a fold out of
+ *  exact alignment with the freshly computed range, so unfolding must match
+ *  loosely or a drifted fold becomes permanently stuck. */
+function foldsWithin(state: EditorState, range: FoldRange): FoldRange[] {
+  const folds: FoldRange[] = [];
   foldedRanges(state).between(range.from, range.to, (from, to) => {
-    if (from === range.from && to === range.to) found = true;
+    folds.push({ from, to });
   });
-  return found;
+  return folds;
 }
 
 // Every bullet renders as a dot. Dots with nested content get color and
@@ -104,10 +107,11 @@ class BulletWidget extends WidgetType {
         event.preventDefault();
         const range = listFoldRange(view.state, this.lineFrom);
         if (!range) return;
+        const folds = foldsWithin(view.state, range);
         view.dispatch({
-          effects: (isFolded(view.state, range) ? unfoldEffect : foldEffect).of(
-            range,
-          ),
+          effects: folds.length
+            ? folds.map((fold) => unfoldEffect.of(fold))
+            : foldEffect.of(range),
         });
         view.focus();
       });
@@ -128,7 +132,7 @@ function bulletDecorations(view: EditorView): DecorationSet {
       Decoration.replace({
         widget: new BulletWidget(
           line.from,
-          foldRange ? isFolded(view.state, foldRange) : false,
+          foldRange ? foldsWithin(view.state, foldRange).length > 0 : false,
           foldRange !== null,
         ),
       }).range(from, from + 1),
@@ -403,6 +407,27 @@ export function cleanFormatting(value: string): string {
     .join("\n");
 }
 
+/** Strip every inline formatting tag on the lines the selection touches —
+ *  the escape hatch when hidden tags trap the cursor inside formatting. */
+export function clearFormatting(view: EditorView) {
+  const { state } = view;
+  const selection = state.selection.main;
+  const firstLine = state.doc.lineAt(selection.from).number;
+  const lastLine = state.doc.lineAt(selection.to).number;
+  const changes = [];
+  for (let number = firstLine; number <= lastLine; number++) {
+    const line = state.doc.line(number);
+    for (const match of line.text.matchAll(INLINE_TOKEN)) {
+      changes.push({
+        from: line.from + match.index!,
+        to: line.from + match.index! + match[0].length,
+      });
+    }
+  }
+  if (changes.length) view.dispatch({ changes });
+  view.focus();
+}
+
 function cycleHeading(view: EditorView) {
   const line = view.state.doc.lineAt(view.state.selection.main.head);
   const match = /^(#{1,3})\s/.exec(line.text);
@@ -455,10 +480,13 @@ export function continueBullet(view: EditorView): boolean {
   }
 
   // Cursor in the text: split into a sibling bullet. Close open formatting
-  // on this line and reopen it on the new one so wrappers never span lines.
+  // on this line; reopen it on the new one only when the split carries real
+  // text along — Enter at the end of a formatted run ends the formatting.
   const open = openWrappersAt(line.text, selection.head - line.from);
   const closers = [...open].reverse().map(closerFor).join("");
-  const reopeners = open.join("");
+  const reopeners = textFollows(line.text, selection.head - line.from)
+    ? open.join("")
+    : "";
   const inserted = `${closers}\n${indent}${marker} ${reopeners}`;
   view.dispatch({
     changes: { from: selection.head, insert: inserted },
@@ -487,6 +515,10 @@ const tokenKind = (token: string) =>
       : token.includes("span")
         ? "span"
         : "u";
+
+/** True when real text (not just tags/whitespace) follows `from` on the line. */
+const textFollows = (lineText: string, from: number) =>
+  lineText.slice(from).replace(INLINE_TOKEN, "").trim().length > 0;
 
 /** Formatting wrappers still open at `upTo` (an offset into `lineText`). */
 function openWrappersAt(lineText: string, upTo: number): string[] {
@@ -574,7 +606,9 @@ export function insertJournalNewline(view: EditorView): boolean {
   if (!open.length) return false;
 
   const closers = [...open].reverse().map(closerFor).join("");
-  const reopeners = open.join("");
+  const reopeners = textFollows(line.text, selection.head - line.from)
+    ? open.join("")
+    : "";
   const inserted = `${closers}\n${reopeners}`;
   view.dispatch({
     changes: { from: selection.head, insert: inserted },
@@ -658,11 +692,15 @@ export function MarkdownNoteEditor({
         markdown(),
         syntaxHighlighting(defaultHighlightStyle),
         codeFolding({
-          placeholderDOM: () => {
-            const hidden = document.createElement("span");
-            hidden.className = "cm-note-fold-hidden";
-            hidden.setAttribute("aria-hidden", "true");
-            return hidden;
+          placeholderDOM: (_view, onclick) => {
+            const marker = document.createElement("span");
+            marker.className = "cm-note-fold-marker";
+            marker.textContent = "⋯";
+            marker.title = "show hidden notes";
+            marker.setAttribute("role", "button");
+            marker.setAttribute("aria-label", "show hidden notes");
+            marker.onclick = onclick;
+            return marker;
           },
         }),
         listFolding,
@@ -697,6 +735,14 @@ export function MarkdownNoteEditor({
             key: "Mod-Shift-x",
             run: (view) => {
               wrapSelection(view, "~~", "~~");
+              return true;
+            },
+          },
+          {
+            key: "Mod-\\",
+            preventDefault: true,
+            run: (view) => {
+              clearFormatting(view);
               return true;
             },
           },
@@ -756,6 +802,13 @@ export function MarkdownNoteEditor({
         </button>
         <button type="button" title="strikethrough (⌘⇧X)" onClick={() => wrap("~~", "~~")}>
           <s>S</s>
+        </button>
+        <button
+          type="button"
+          title="clear formatting on selected lines (⌘\)"
+          onClick={() => viewRef.current && clearFormatting(viewRef.current)}
+        >
+          Tx
         </button>
         {(["yellow", "green", "blue", "pink"] as const).map((color) => (
           <button

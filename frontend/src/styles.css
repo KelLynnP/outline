@@ -2047,7 +2047,21 @@ button.tog.on {
   color: var(--ink-quiet);
   padding: 0;
 }
-.daynotes-input .cm-note-fold-hidden { display: none; }
+/* Folded bullet content: a visible pill so hidden text is never a mystery. */
+.daynotes-input .cm-note-fold-marker {
+  display: inline-block;
+  padding: 0 7px;
+  margin-left: 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d6a950 22%, transparent);
+  color: #b98224;
+  cursor: pointer;
+  line-height: 1.25;
+  user-select: none;
+}
+.daynotes-input .cm-note-fold-marker:hover {
+  background: color-mix(in srgb, #d6a950 38%, transparent);
+}
 .daynotes-loading {
   min-height: 240px;
   border: 1px solid var(--line-soft);
