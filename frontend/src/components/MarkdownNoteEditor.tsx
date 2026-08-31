@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorState } from "@codemirror/state";
 import {
   defaultKeymap,
@@ -642,6 +642,27 @@ export function changeLineIndent(view: EditorView, outdent: boolean): boolean {
   return true; // always handled — Tab never tabs out of the note
 }
 
+/** Toggle "- " bullets on every line the selection touches (format bar). */
+export function toggleBullet(view: EditorView) {
+  const { state } = view;
+  const selection = state.selection.main;
+  const firstLine = state.doc.lineAt(selection.from).number;
+  const lastLine = state.doc.lineAt(selection.to).number;
+  const changes = [];
+  for (let number = firstLine; number <= lastLine; number++) {
+    const line = state.doc.line(number);
+    const bullet = /^(\s*)[-*+]\s/.exec(line.text);
+    if (bullet) {
+      changes.push({ from: line.from + bullet[1].length, to: line.from + bullet[0].length });
+    } else {
+      const indent = /^\s*/.exec(line.text)![0].length;
+      changes.push({ from: line.from + indent, insert: "- " });
+    }
+  }
+  view.dispatch({ changes });
+  view.focus();
+}
+
 export function removeBulletBackward(view: EditorView): boolean {
   const selection = view.state.selection.main;
   if (!selection.empty) return false;
@@ -674,6 +695,9 @@ export function MarkdownNoteEditor({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // Mobile-only: the format bar collapses to a single "Aa" toggle
+  // (the toggle button is hidden on desktop, where the full bar shows).
+  const [barOpen, setBarOpen] = useState(false);
   const initialValueRef = useRef(initialValue);
   const emptyTextRef = useRef(emptyText);
   const onChangeRef = useRef(onChange);
@@ -790,10 +814,36 @@ export function MarkdownNoteEditor({
   const wrap = (open: string, close: string) => {
     if (viewRef.current) wrapSelection(viewRef.current, open, close);
   };
+  const indent = (outdent: boolean) => {
+    if (!viewRef.current) return;
+    changeLineIndent(viewRef.current, outdent);
+    viewRef.current.focus();
+  };
 
   return (
     <div className="note-editor">
-      <div className="note-formatbar" aria-label="Text formatting">
+      {/* mousedown preventDefault keeps the editor focused (and the mobile
+          keyboard up) while tapping formatting buttons */}
+      <div
+        className={`note-formatbar${barOpen ? " open" : ""}`}
+        aria-label="Text formatting"
+        onMouseDown={(event) => event.preventDefault()}
+      >
+        <button
+          type="button"
+          className="note-format-bullet"
+          title="toggle bullet"
+          onClick={() => viewRef.current && toggleBullet(viewRef.current)}
+        >
+          •
+        </button>
+        <button type="button" title="outdent line (⇧⇥)" onClick={() => indent(true)}>
+          ⇤
+        </button>
+        <button type="button" title="indent line (⇥)" onClick={() => indent(false)}>
+          ⇥
+        </button>
+        <span className="note-format-divider" />
         <button type="button" title="cycle heading" onClick={() => viewRef.current && cycleHeading(viewRef.current)}>
           H
         </button>
@@ -837,6 +887,14 @@ export function MarkdownNoteEditor({
             A
           </button>
         ))}
+        <button
+          type="button"
+          className="note-format-toggle"
+          title={barOpen ? "hide formatting tools" : "show formatting tools"}
+          onClick={() => setBarOpen((open) => !open)}
+        >
+          {barOpen ? "›" : "Aa"}
+        </button>
       </div>
       <div className="daynotes-input" ref={hostRef} />
     </div>

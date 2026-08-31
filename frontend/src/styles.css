@@ -1,5 +1,5 @@
 :root {
-  --bg: #f4f1e8;
+  --bg: #fbfaf7;
   --ink: #111111;
   --ink-soft: #4a4a4a;
   --ink-quiet: #8f8a82;
@@ -2100,6 +2100,9 @@ button.tog.on {
   font-size: 12px;
 }
 .note-formatbar button:hover { background: var(--line-soft); color: var(--ink); }
+/* bullet + expand/collapse toggle only exist on the mobile shell */
+.note-format-toggle,
+.note-format-bullet { display: none; }
 .note-formatbar .note-color {
   width: 16px;
   height: 16px;
@@ -3232,3 +3235,136 @@ button.tog.on {
   border-radius: 2px;
   padding: 0 2px;
 }
+
+/* ============================ mobile shell ============================
+   Phone viewports (≤640px) render MobilePage instead of HomePage
+   (matchMedia in App.tsx): a launcher home + one full-screen module at
+   a time. Everything here is scoped under .mobile / .m-*; desktop
+   styles above are untouched. */
+
+.mobile {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.m-loading { padding: 40px 20px; }
+
+/* iOS sticky-hover: don't leave buttons stuck in their hover state after
+   a tap on touch-only devices. */
+@media (hover: none) {
+  button:hover { background: var(--card); color: var(--ink); }
+  button.primary:hover { background: var(--ink); border-color: var(--ink); }
+}
+
+/* ---------------- home launcher ---------------- */
+.m-home { padding: 28px 20px calc(28px + env(safe-area-inset-bottom)); gap: 24px; }
+.m-home-head h1 {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 0 0 6px;
+}
+.m-home-date { font-family: var(--display); font-size: 24px; font-weight: 600; line-height: 1.2; }
+.m-modules { display: flex; flex-direction: column; gap: 10px; }
+.m-module {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+.m-module:active { background: var(--line-soft); transform: none; }
+.m-module-name { font-family: var(--display); font-size: 17px; font-weight: 600; }
+.m-module-hint { font-family: var(--sans); font-weight: 400; font-size: 12px; color: var(--ink-quiet); }
+
+/* ---------------- module screens ---------------- */
+.m-screen { height: 100dvh; overflow: hidden; }
+.m-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--bg);
+}
+.m-bar button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 13px;
+  background: var(--card);
+  color: var(--ink);
+}
+.m-back { min-width: 40px; }
+.m-bar-title { font-family: var(--display); font-weight: 600; font-size: 14px; }
+.m-bar-date { margin-left: auto; display: flex; gap: 4px; }
+.m-bar-day { font-size: 12px; }
+.m-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 12px calc(16px + env(safe-area-inset-bottom));
+}
+
+/* notes: blank page — no card chrome, the editor is the screen */
+.m-notes .m-body { padding: 0; }
+.m-notes .daynotes {
+  min-height: 100%;
+  background: var(--card);
+  gap: 8px;
+  padding: 10px 14px calc(20px + env(safe-area-inset-bottom));
+}
+.m-notes .daynotes-pin { display: none; }
+.m-notes .notepane { gap: 6px; }
+.m-notes .daynotes-input { border: 0; border-radius: 0; padding: 0; }
+.m-notes .daynotes-input .cm-editor,
+.m-notes .daynotes-input .cm-content { min-height: 70vh; }
+/* ≥16px or iOS Safari zooms the viewport when the editor gains focus */
+.m-notes .daynotes-input .cm-content { font-size: 16px; }
+.m-notes .note-formatbar {
+  opacity: 1;
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
+}
+.m-notes .note-formatbar > * { flex: 0 0 auto; }
+.m-notes .note-formatbar button { width: 28px; height: 28px; }
+.m-notes .note-formatbar .note-color { width: 18px; height: 18px; }
+.m-notes .note-format-toggle,
+.m-notes .note-format-bullet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* collapsed: the first six buttons (• ⇤ ⇥ H U S) + the Aa toggle;
+   open: the full single scrollable row */
+.m-notes .note-formatbar:not(.open) > :nth-child(n + 8):not(.note-format-toggle) {
+  display: none;
+}
+/* fold dots are 15px; give thumbs an invisible larger hit area */
+.m-notes .cm-note-bullet.has-children::after {
+  content: "";
+  position: absolute;
+  inset: -8px -6px -8px -10px;
+}
+
+/* tasks: wrap rows so chips drop below the text instead of crushing it */
+.m-tasks .taskboard { font-size: 12px; }
+.m-tasks .task-row { flex-wrap: wrap; gap: 5px 7px; }
+.m-tasks .task-row-text { flex: 1 1 auto; min-width: 58%; font-size: 13px; }
+.m-tasks .task-row .drag-handle { display: none; }
+.m-tasks .tb-composer-row { flex-wrap: wrap; row-gap: 6px; }
+
+/* timeline: keep the spine readable, scroll it sideways */
+.m-timeline-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.m-timeline-inner { min-width: 860px; }
