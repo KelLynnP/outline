@@ -2271,8 +2271,6 @@ button.tog.on {
   width: 100%;
   margin: 0;
 }
-.daynotes.focused .notepane.pinned,
-.daynotes.focused .daynotes-pin { display: none; }
 .daynotes.focused .daynotes-controls {
   position: sticky;
   top: 0;
