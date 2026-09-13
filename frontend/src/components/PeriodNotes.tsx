@@ -86,9 +86,9 @@ const loadPins = (): string[] => {
   }
 };
 
-type Theme = "light" | "sepia" | "dark";
+export type Theme = "light" | "sepia" | "dark";
 const THEMES: Theme[] = ["light", "sepia", "dark"];
-const loadTheme = (): Theme => {
+export const loadTheme = (): Theme => {
   const stored = localStorage.getItem("notes.theme") as Theme | null;
   if (stored && THEMES.includes(stored)) return stored;
   return localStorage.getItem("notes.dark") === "1" ? "dark" : "light";
@@ -168,11 +168,13 @@ interface Props {
   date: string;
   view: "day" | "week" | "month";
   weekStartsOn: WeekStart;
+  // Lets the page repaint the surrounding section (header) in the same theme.
+  onThemeChange?: (theme: Theme) => void;
 }
 
 // Notes panes: one follows the selected day/week/month, plus any pinned
 // periods. Each period is its own note.
-export function PeriodNotes({ date, view, weekStartsOn }: Props) {
+export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) {
   const [pins, setPins] = useState<string[]>(loadPins);
   const [picking, setPicking] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -201,6 +203,7 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
   };
 
   useEffect(() => setScope(view), [view]);
+  useEffect(() => onThemeChange?.(theme), [theme, onThemeChange]);
 
   useEffect(() => {
     if (!focused) return;
@@ -281,6 +284,26 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
           >
             {focused ? "↙" : "↗"}
           </button>
+          {picking ? (
+            SCOPES.map((s) => (
+              <button
+                key={s}
+                className="pin-chip"
+                title={`open the ${s} note alongside — follows the timeline until you lock it`}
+                onClick={() => addPin(s)}
+              >
+                {s}
+              </button>
+            ))
+          ) : (
+            <button
+              className="row-icon"
+              title="open another note alongside"
+              onClick={() => setPicking(true)}
+            >
+              +
+            </button>
+          )}
         </div>
       </div>
       <div className={`daynotes-panes${stacked ? " stacked" : ""}`}>
@@ -336,28 +359,6 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
             />
           );
         })}
-        <div className="daynotes-pin">
-          {picking ? (
-            SCOPES.map((s) => (
-              <button
-                key={s}
-                className="pin-chip"
-                title={`open the ${s} note alongside — follows the timeline until you lock it`}
-                onClick={() => addPin(s)}
-              >
-                {s}
-              </button>
-            ))
-          ) : (
-            <button
-              className="row-icon"
-              title="pin another note alongside"
-              onClick={() => setPicking(true)}
-            >
-              +
-            </button>
-          )}
-        </div>
       </div>
     </div>
   );

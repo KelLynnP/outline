@@ -1933,10 +1933,20 @@ button.tog.on {
   background: #fbf9f4;
 }
 /* only round the card corners when notes is the last section */
-.workboard-notes:last-child {
+.notes-section:last-child,
+.notes-section:last-child .workboard-notes {
   border-radius: 0 0 14px 14px;
-  border-bottom: none;
 }
+.notes-section:last-child .workboard-notes { border-bottom: none; }
+/* notes-only themes: header + body repaint together */
+.notes-section.sepia { background: #ece2c9; }
+.notes-section.sepia .workboard-notes { background: #ece2c9; border-color: #e2d5b8; }
+.notes-section.sepia .section-toggle { color: #6b5c46; }
+.notes-section.sepia .section-toggle:hover { color: #3d3325; }
+.notes-section.dark { background: #141617; }
+.notes-section.dark .workboard-notes { background: #141617; border-color: #34383a; }
+.notes-section.dark .section-toggle { color: #c5c0b7; }
+.notes-section.dark .section-toggle:hover { color: #ece8df; }
 
 /* whitespace on task table + composer */
 .workboard .composer { padding: 4px 0 16px; }
@@ -2200,7 +2210,6 @@ button.tog.on {
   color: var(--ink-quiet);
 }
 .daynotes-head-right { display: flex; align-items: center; gap: 6px; }
-.daynotes-pin { display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
 .pin-chip {
   font-family: var(--mono);
   font-size: 10px;
@@ -2213,13 +2222,7 @@ button.tog.on {
 }
 .pin-chip:hover { color: var(--ink); border-color: var(--ink-quiet); }
 
-/* notes-only themes: the section repaints itself via the shared vars */
-.daynotes.dark,
-.daynotes.sepia {
-  margin: -20px -28px -28px;
-  padding: 20px 28px 28px;
-  border-radius: inherit;
-}
+/* notes-only themes: the editor repaints via the shared vars */
 .daynotes.dark .daynotes-input .cm-editor,
 .daynotes.sepia .daynotes-input .cm-editor { background: var(--card); color: var(--ink); }
 .daynotes.sepia {
@@ -3353,7 +3356,7 @@ button.tog.on {
   gap: 8px;
   padding: 10px 14px calc(20px + env(safe-area-inset-bottom));
 }
-.m-notes .daynotes-pin { display: none; }
+.m-notes .daynotes-controls { flex-wrap: wrap; }
 .m-notes .notepane { gap: 6px; }
 .m-notes .daynotes-input { border: 0; border-radius: 0; padding: 0; }
 .m-notes .daynotes-input .cm-editor,
