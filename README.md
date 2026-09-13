@@ -17,34 +17,43 @@ npm run dev        # backend on :4000, frontend on :5173 with proxy
 
 Open http://localhost:5173. Reset anytime with `rm -f data/console.db && npm run seed`.
 
-## planned deployment
+## deployment (live since 2026-08)
 
-Target: one Ubuntu DigitalOcean Droplet, available at
-`console.kelsey.xyz` through Cloudflare Tunnel and protected by Cloudflare
-Access. The tunnel manages HTTPS and lets the app remain private on
-`127.0.0.1:4000`; no public web ports are required.
+Production is one Ubuntu DigitalOcean Droplet at `137.184.224.81`, serving
+`console.kelsey.xyz` through Cloudflare Tunnel behind Cloudflare Access.
+The tunnel handles HTTPS; the app listens privately on `127.0.0.1:4000`.
+Note: this is NOT `bbserver` (209.38.72.102) — that droplet hosts an
+unrelated project.
 
-Initial setup:
-1. Create an unprivileged `lifeconsole` user.
-2. Install Node 22, Git, and SQLite.
-3. Give the Droplet read-only access to the GitHub repository and clone it
-   into `/opt/life-console`.
-4. Upload the gitignored `.env`, `settings.json`, and initial
-   `data/console.db`.
-5. Run the app with systemd so it starts after reboots, restarts after
-   crashes, and writes logs to the system journal.
-6. Run Cloudflare Tunnel with systemd and configure Cloudflare Access to
-   allow only approved email addresses.
-7. Add nightly SQLite backups and DigitalOcean snapshots.
+What's on the droplet:
+- App cloned at `/opt/life-console`, owned by the unprivileged `lifeconsole`
+  user (git operations must run as `lifeconsole`, not root).
+- systemd units: `life-console.service` (runs
+  `node backend/dist/index.js` as `lifeconsole`, `Restart=always`),
+  `cloudflared.service` (tunnel), and `life-console-backup.timer`
+  (nightly SQLite backups).
+- The gitignored `.env`, `settings.json`, and `data/console.db` live only on
+  the droplet. The droplet database is the production source of truth; local
+  databases are for development and do not synchronize with it.
+- System timezone must be `America/Los_Angeles`
+  (`timedatectl set-timezone America/Los_Angeles`). The calendar adapter and
+  "today" logic use server-local time — when the droplet was on UTC, every
+  synced meeting shifted +7h. Re-set this if the droplet is ever rebuilt.
 
-Routine deployment remains manual and predictable: push `main`, then run one
-remote deploy script. The script backs up SQLite, pulls with
-`git pull --ff-only`, runs `npm ci` and `npm run build`, restarts the systemd
-service, and checks `/api/health`. Build failure leaves the existing service
-running; normal restart downtime should be only a few seconds.
+Deploying (manual — there is no deploy script yet). Push `main`, then:
 
-Once deployed, the Droplet database is the production source of truth. Local
-databases are for development only and do not synchronize with production.
+```bash
+ssh lifeconsole@137.184.224.81 'cd /opt/life-console \
+  && cp data/console.db "data/console.db.bak-$(date +%Y%m%d-%H%M%S)" \
+  && git pull --ff-only && npm ci && npm run build'
+# only restart if the build above succeeded:
+ssh root@137.184.224.81 'systemctl restart life-console \
+  && sleep 3 && curl -s http://127.0.0.1:4000/api/health'
+```
+
+Health check should print `{"ok":true}`. A failed build leaves the old
+service running; restart downtime is a few seconds. Logs:
+`journalctl -u life-console` on the droplet.
 
 ## architecture
 
