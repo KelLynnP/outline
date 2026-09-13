@@ -110,8 +110,8 @@ configured week start / `month-YYYY-MM` / `year-YYYY`). `PeriodNotes` on the wor
 one pane following the day/week/month view, plus optional **pinned** panes
 ("+" opens any scope alongside; a pin is `follow:<scope>` (re-anchors to the
 selected date as you navigate) or a fixed key (locked to that period) — the
-"follows"/"locked" chip switches between them; ‹ › reorder; persisted in
-localStorage `notes.pins`). Notes-only text zoom (`notes.zoom`), theme
+"follows"/"locked" chip switches between them; drag pane titles to reorder;
+persisted in localStorage `notes.pins` / `notes.paneOrder`). Notes-only text zoom (`notes.zoom`), theme
 light/sepia/dark (`notes.theme`) and stacked vs side-by-side panes
 (`notes.stacked`) live in the notes toolbar. Day keys
 read/write `stops.notes`, other keys this table — all via

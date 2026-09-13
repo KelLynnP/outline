@@ -2193,7 +2193,16 @@ button.tog.on {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  border-radius: 8px;
+  transition: opacity 100ms, outline-color 100ms;
 }
+.notepane.dragging { opacity: 0.35; }
+.daynotes-panes:has(.notepane.dragging) .notepane:not(.dragging):hover {
+  outline: 2px dashed var(--ink-quiet);
+  outline-offset: 5px;
+}
+.pane-drag-handle { cursor: grab; user-select: none; }
+.pane-drag-handle:active { cursor: grabbing; }
 .daynotes-panes.stacked { flex-direction: column; }
 .daynotes-panes.stacked .notepane { flex-basis: auto; }
 .notepane.pinned .daynotes-input { border-style: dashed; }

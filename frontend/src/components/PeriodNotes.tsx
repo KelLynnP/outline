@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type ReactNode,
 } from "react";
 import {
@@ -78,6 +79,8 @@ function labelFor(key: string): string {
  * date as you navigate, so day + week can sit side by side). */
 const PINS_KEY = "notes.pins";
 const FOLLOW = "follow:";
+const PRIMARY = "primary";
+const PANE_ORDER_KEY = "notes.paneOrder";
 const loadPins = (): string[] => {
   try {
     return JSON.parse(localStorage.getItem(PINS_KEY) ?? "[]");
@@ -176,6 +179,14 @@ interface Props {
 // periods. Each period is its own note.
 export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) {
   const [pins, setPins] = useState<string[]>(loadPins);
+  const [paneOrder, setPaneOrder] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(PANE_ORDER_KEY) ?? `["${PRIMARY}"]`);
+    } catch {
+      return [PRIMARY];
+    }
+  });
+  const [draggedPane, setDraggedPane] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [focused, setFocused] = useState(false);
   const [scope, setScope] = useState<Scope>(view);
@@ -195,6 +206,11 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
       resolvePin(pin) !== primaryKey &&
       pins.findIndex((p) => resolvePin(p) === resolvePin(pin)) === i,
   );
+  const visiblePaneIds = [PRIMARY, ...visiblePins];
+  const orderedPaneIds = [
+    ...paneOrder.filter((id) => visiblePaneIds.includes(id)),
+    ...visiblePaneIds.filter((id) => !paneOrder.includes(id)),
+  ];
 
   const cycleTheme = () => {
     const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
@@ -218,20 +234,28 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
     setPins(next);
     localStorage.setItem(PINS_KEY, JSON.stringify(next));
   };
+  const savePaneOrder = (next: string[]) => {
+    setPaneOrder(next);
+    localStorage.setItem(PANE_ORDER_KEY, JSON.stringify(next));
+  };
   const addPin = (scope: Scope) => {
     setPicking(false);
     const pin = `${FOLLOW}${scope}`;
     if (!pins.includes(pin)) savePins([...pins, pin]);
   };
-  const replacePin = (pin: string, next: string) =>
+  const replacePin = (pin: string, next: string) => {
     savePins(pins.map((p) => (p === pin ? next : p)));
-  const movePin = (pin: string, dir: -1 | 1) => {
-    const i = pins.indexOf(pin);
-    const j = i + dir;
-    if (j < 0 || j >= pins.length) return;
-    const next = [...pins];
-    [next[i], next[j]] = [next[j], next[i]];
-    savePins(next);
+    savePaneOrder(paneOrder.map((p) => (p === pin ? next : p)));
+  };
+  const movePane = (target: string) => {
+    if (!draggedPane || draggedPane === target) return;
+    const next = [...orderedPaneIds];
+    const from = next.indexOf(draggedPane);
+    const to = next.indexOf(target);
+    next.splice(from, 1);
+    next.splice(to, 0, draggedPane);
+    savePaneOrder(next);
+    setDraggedPane(null);
   };
 
   const themeTitle =
@@ -297,7 +321,7 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
             ))
           ) : (
             <button
-              className="row-icon"
+              className="row-icon notes-add-pane"
               title="open another note alongside"
               onClick={() => setPicking(true)}
             >
@@ -307,15 +331,31 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
         </div>
       </div>
       <div className={`daynotes-panes${stacked ? " stacked" : ""}`}>
-        <NotePane key={primaryKey} noteKey={primaryKey} />
-        {visiblePins.map((pin, i) => {
+        {orderedPaneIds.map((paneId) => {
+          const pin = paneId === PRIMARY ? null : paneId;
+          if (!pin) {
+            return (
+              <NotePane
+                key={primaryKey}
+                noteKey={primaryKey}
+                paneId={PRIMARY}
+                dragging={draggedPane === PRIMARY}
+                onDragStart={setDraggedPane}
+                onDrop={movePane}
+              />
+            );
+          }
           const key = resolvePin(pin);
           const follows = pin.startsWith(FOLLOW);
           return (
             <NotePane
               key={key}
               noteKey={key}
+              paneId={pin}
               pinned
+              dragging={draggedPane === pin}
+              onDragStart={setDraggedPane}
+              onDrop={movePane}
               actions={
                 <>
                   <button
@@ -333,24 +373,11 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
                   </button>
                   <button
                     className="row-icon"
-                    title="move pane back"
-                    disabled={i === 0}
-                    onClick={() => movePin(pin, -1)}
-                  >
-                    ‹
-                  </button>
-                  <button
-                    className="row-icon"
-                    title="move pane forward"
-                    disabled={i === visiblePins.length - 1}
-                    onClick={() => movePin(pin, 1)}
-                  >
-                    ›
-                  </button>
-                  <button
-                    className="row-icon"
                     title="unpin"
-                    onClick={() => savePins(pins.filter((p) => p !== pin))}
+                    onClick={() => {
+                      savePins(pins.filter((p) => p !== pin));
+                      savePaneOrder(paneOrder.filter((p) => p !== pin));
+                    }}
                   >
                     ×
                   </button>
@@ -366,11 +393,19 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
 
 function NotePane({
   noteKey,
+  paneId,
   pinned = false,
+  dragging = false,
+  onDragStart,
+  onDrop,
   actions,
 }: {
   noteKey: string;
+  paneId: string;
   pinned?: boolean;
+  dragging?: boolean;
+  onDragStart: (paneId: string) => void;
+  onDrop: (paneId: string) => void;
   actions?: ReactNode;
 }) {
   const [value, setValue] = useState<string | null>(null);
@@ -441,9 +476,28 @@ function NotePane({
   }, []);
 
   return (
-    <div className={`notepane ${pinned ? "pinned" : ""}`}>
+    <div
+      className={`notepane${pinned ? " pinned" : ""}${dragging ? " dragging" : ""}`}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop(paneId);
+      }}
+    >
       <div className="daynotes-head">
-        <span className="daynotes-title">notes · {labelFor(noteKey)}</span>
+        <span
+          className="daynotes-title pane-drag-handle"
+          draggable
+          title="drag to move pane"
+          onDragStart={(event: ReactDragEvent) => {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", paneId);
+            onDragStart(paneId);
+          }}
+          onDragEnd={() => onDragStart("")}
+        >
+          ⠿ notes · {labelFor(noteKey)}
+        </span>
         <span className="daynotes-head-right">
           <span className={`daynotes-status ${status}`}>
             {status === "saving" ? "saving…" : status === "saved" ? "saved" : ""}
