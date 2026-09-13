@@ -94,9 +94,75 @@ const loadTheme = (): Theme => {
   return localStorage.getItem("notes.dark") === "1" ? "dark" : "light";
 };
 
-const ZOOM_MIN = 12;
-const ZOOM_MAX = 24;
+// Coarse steps: the top end is "a few words fill the screen".
+const ZOOM_STEPS = [13, 15, 18, 22, 27, 34, 44, 56, 72];
 const ZOOM_DEFAULT = 15;
+// Horizontal padding inside the editor, for narrowing the text column.
+const PAD_STEPS = [20, 48, 96, 160, 240, 340];
+const PAD_DEFAULT = 20;
+
+/** Persisted value snapped to `steps`; returns [value, step(dir), reset]. */
+function useStepped(key: string, steps: number[], fallback: number) {
+  const snap = (n: number) =>
+    steps.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a));
+  const [value, setValue] = useState(() =>
+    snap(Number(localStorage.getItem(key)) || fallback),
+  );
+  const set = (n: number) => {
+    localStorage.setItem(key, String(n));
+    setValue(n);
+  };
+  const step = (dir: -1 | 1) => {
+    const i = Math.min(steps.length - 1, Math.max(0, steps.indexOf(value) + dir));
+    set(steps[i]);
+  };
+  return [value, step, () => set(fallback)] as const;
+}
+
+function Stepper({
+  label,
+  value,
+  steps,
+  onStep,
+  onReset,
+}: {
+  label: string;
+  value: number;
+  steps: number[];
+  onStep: (dir: -1 | 1) => void;
+  onReset: () => void;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        className="row-icon"
+        title={`smaller ${label}`}
+        disabled={value <= steps[0]}
+        onClick={() => onStep(-1)}
+      >
+        −
+      </button>
+      <button
+        type="button"
+        className="row-icon stepper-value"
+        title={`reset ${label}`}
+        onClick={onReset}
+      >
+        {value}
+      </button>
+      <button
+        type="button"
+        className="row-icon"
+        title={`larger ${label}`}
+        disabled={value >= steps[steps.length - 1]}
+        onClick={() => onStep(1)}
+      >
+        +
+      </button>
+    </>
+  );
+}
 
 interface Props {
   date: string;
@@ -112,9 +178,8 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
   const [focused, setFocused] = useState(false);
   const [scope, setScope] = useState<Scope>(view);
   const [theme, setTheme] = useState<Theme>(loadTheme);
-  const [zoom, setZoom] = useState(
-    () => Number(localStorage.getItem("notes.zoom")) || ZOOM_DEFAULT,
-  );
+  const [zoom, stepZoom, resetZoom] = useStepped("notes.zoom", ZOOM_STEPS, ZOOM_DEFAULT);
+  const [pad, stepPad, resetPad] = useStepped("notes.pad", PAD_STEPS, PAD_DEFAULT);
   const [stacked, toggleStacked] = useToggle("notes.stacked", false);
   const primaryKey = keyFor(scope, date, weekStartsOn);
 
@@ -129,11 +194,6 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
       pins.findIndex((p) => resolvePin(p) === resolvePin(pin)) === i,
   );
 
-  const setZoomClamped = (next: number) => {
-    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
-    localStorage.setItem("notes.zoom", String(clamped));
-    setZoom(clamped);
-  };
   const cycleTheme = () => {
     const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
     localStorage.setItem("notes.theme", next);
@@ -177,7 +237,7 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
   return (
     <div
       className={`daynotes${focused ? " focused" : ""}${theme === "light" ? "" : ` ${theme}`}`}
-      style={{ "--note-fs": `${zoom}px` } as CSSProperties}
+      style={{ "--note-fs": `${zoom}px`, "--note-pad": `${pad}px` } as CSSProperties}
     >
       <div className="daynotes-controls">
         <div className="daynotes-scopes" aria-label="Note period">
@@ -193,32 +253,10 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
           ))}
         </div>
         <div className="daynotes-actions">
-          <button
-            type="button"
-            className="row-icon"
-            title="smaller text"
-            disabled={zoom <= ZOOM_MIN}
-            onClick={() => setZoomClamped(zoom - 1)}
-          >
-            A−
-          </button>
-          <button
-            type="button"
-            className="row-icon zoom-reset"
-            title="reset text size"
-            onClick={() => setZoomClamped(ZOOM_DEFAULT)}
-          >
-            {zoom}
-          </button>
-          <button
-            type="button"
-            className="row-icon"
-            title="larger text"
-            disabled={zoom >= ZOOM_MAX}
-            onClick={() => setZoomClamped(zoom + 1)}
-          >
-            A+
-          </button>
+          <span className="stepper-label" title="text size">A</span>
+          <Stepper label="text" value={zoom} steps={ZOOM_STEPS} onStep={stepZoom} onReset={resetZoom} />
+          <span className="stepper-label" title="side padding">↔</span>
+          <Stepper label="side padding" value={pad} steps={PAD_STEPS} onStep={stepPad} onReset={resetPad} />
           <button
             type="button"
             className="row-icon"
