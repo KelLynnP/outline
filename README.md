@@ -108,8 +108,12 @@ predate the workboard; day notes live in `stops.notes`.
 **period_notes** — freeform week/month/year notes (`key` = `week-YYYY-MM-DD`
 configured week start / `month-YYYY-MM` / `year-YYYY`). `PeriodNotes` on the workboard shows
 one pane following the day/week/month view, plus optional **pinned** panes
-("+" pins any scope anchored at the selected date; pins hold their period
-while you navigate, persisted in localStorage `notes.pins`). Day keys
+("+" opens any scope alongside; a pin is `follow:<scope>` (re-anchors to the
+selected date as you navigate) or a fixed key (locked to that period) — the
+"follows"/"locked" chip switches between them; ‹ › reorder; persisted in
+localStorage `notes.pins`). Notes-only text zoom (`notes.zoom`), theme
+light/sepia/dark (`notes.theme`) and stacked vs side-by-side panes
+(`notes.stacked`) live in the notes toolbar. Day keys
 read/write `stops.notes`, other keys this table — all via
 `GET/PUT /api/notes/:key`.
 

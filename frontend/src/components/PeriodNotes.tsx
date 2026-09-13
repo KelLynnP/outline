@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   startOfWeekISO,
   type WeekStart,
 } from "@life-console/shared";
 import { api } from "../api.js";
+import { useToggle } from "../useToggle.js";
 import { MarkdownNoteEditor } from "./MarkdownNoteEditor.js";
 
 type Scope = "day" | "week" | "month" | "year" | "media";
@@ -66,9 +73,11 @@ function labelFor(key: string): string {
   }
 }
 
-/* Pinned note keys survive reloads; pins hold a specific period in place
- * while the primary pane follows the timeline. */
+/* Pins survive reloads. A pin is either a fixed note key ("week-2026-09-06",
+ * locked to that period) or "follow:<scope>" (re-anchors to the selected
+ * date as you navigate, so day + week can sit side by side). */
 const PINS_KEY = "notes.pins";
+const FOLLOW = "follow:";
 const loadPins = (): string[] => {
   try {
     return JSON.parse(localStorage.getItem(PINS_KEY) ?? "[]");
@@ -77,6 +86,18 @@ const loadPins = (): string[] => {
   }
 };
 
+type Theme = "light" | "sepia" | "dark";
+const THEMES: Theme[] = ["light", "sepia", "dark"];
+const loadTheme = (): Theme => {
+  const stored = localStorage.getItem("notes.theme") as Theme | null;
+  if (stored && THEMES.includes(stored)) return stored;
+  return localStorage.getItem("notes.dark") === "1" ? "dark" : "light";
+};
+
+const ZOOM_MIN = 12;
+const ZOOM_MAX = 24;
+const ZOOM_DEFAULT = 15;
+
 interface Props {
   date: string;
   view: "day" | "week" | "month";
@@ -84,17 +105,40 @@ interface Props {
 }
 
 // Notes panes: one follows the selected day/week/month, plus any pinned
-// periods ("+" pins a scope anchored at the selected date — it stays put
-// while you navigate). Each period is its own note.
+// periods. Each period is its own note.
 export function PeriodNotes({ date, view, weekStartsOn }: Props) {
   const [pins, setPins] = useState<string[]>(loadPins);
   const [picking, setPicking] = useState(false);
   const [focused, setFocused] = useState(false);
   const [scope, setScope] = useState<Scope>(view);
-  const [dark, setDark] = useState(
-    () => localStorage.getItem("notes.dark") === "1",
+  const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [zoom, setZoom] = useState(
+    () => Number(localStorage.getItem("notes.zoom")) || ZOOM_DEFAULT,
   );
+  const [stacked, toggleStacked] = useToggle("notes.stacked", false);
   const primaryKey = keyFor(scope, date, weekStartsOn);
+
+  const resolvePin = (pin: string) =>
+    pin.startsWith(FOLLOW)
+      ? keyFor(pin.slice(FOLLOW.length) as Scope, date, weekStartsOn)
+      : pin;
+  // Drop pins that currently resolve to the primary or to an earlier pin.
+  const visiblePins = pins.filter(
+    (pin, i) =>
+      resolvePin(pin) !== primaryKey &&
+      pins.findIndex((p) => resolvePin(p) === resolvePin(pin)) === i,
+  );
+
+  const setZoomClamped = (next: number) => {
+    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+    localStorage.setItem("notes.zoom", String(clamped));
+    setZoom(clamped);
+  };
+  const cycleTheme = () => {
+    const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    localStorage.setItem("notes.theme", next);
+    setTheme(next);
+  };
 
   useEffect(() => setScope(view), [view]);
 
@@ -113,12 +157,28 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
   };
   const addPin = (scope: Scope) => {
     setPicking(false);
-    const key = keyFor(scope, date, weekStartsOn);
-    if (key !== primaryKey && !pins.includes(key)) savePins([...pins, key]);
+    const pin = `${FOLLOW}${scope}`;
+    if (!pins.includes(pin)) savePins([...pins, pin]);
+  };
+  const replacePin = (pin: string, next: string) =>
+    savePins(pins.map((p) => (p === pin ? next : p)));
+  const movePin = (pin: string, dir: -1 | 1) => {
+    const i = pins.indexOf(pin);
+    const j = i + dir;
+    if (j < 0 || j >= pins.length) return;
+    const next = [...pins];
+    [next[i], next[j]] = [next[j], next[i]];
+    savePins(next);
   };
 
+  const themeTitle =
+    theme === "light" ? "sepia notes" : theme === "sepia" ? "dark notes" : "light notes";
+
   return (
-    <div className={`daynotes${focused ? " focused" : ""}${dark ? " dark" : ""}`}>
+    <div
+      className={`daynotes${focused ? " focused" : ""}${theme === "light" ? "" : ` ${theme}`}`}
+      style={{ "--note-fs": `${zoom}px` } as CSSProperties}
+    >
       <div className="daynotes-controls">
         <div className="daynotes-scopes" aria-label="Note period">
           {SCOPES.map((option) => (
@@ -136,15 +196,44 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
           <button
             type="button"
             className="row-icon"
-            title={dark ? "use light notes" : "use dark notes"}
-            onClick={() => {
-              setDark((current) => {
-                localStorage.setItem("notes.dark", current ? "0" : "1");
-                return !current;
-              });
-            }}
+            title="smaller text"
+            disabled={zoom <= ZOOM_MIN}
+            onClick={() => setZoomClamped(zoom - 1)}
           >
-            {dark ? "☀" : "◐"}
+            A−
+          </button>
+          <button
+            type="button"
+            className="row-icon zoom-reset"
+            title="reset text size"
+            onClick={() => setZoomClamped(ZOOM_DEFAULT)}
+          >
+            {zoom}
+          </button>
+          <button
+            type="button"
+            className="row-icon"
+            title="larger text"
+            disabled={zoom >= ZOOM_MAX}
+            onClick={() => setZoomClamped(zoom + 1)}
+          >
+            A+
+          </button>
+          <button
+            type="button"
+            className="row-icon"
+            title={themeTitle}
+            onClick={cycleTheme}
+          >
+            {theme === "light" ? "◐" : theme === "sepia" ? "☾" : "☀"}
+          </button>
+          <button
+            type="button"
+            className="row-icon"
+            title={stacked ? "panes side by side" : "stack panes"}
+            onClick={toggleStacked}
+          >
+            {stacked ? "▥" : "▤"}
           </button>
           <button
             type="button"
@@ -156,25 +245,66 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
           </button>
         </div>
       </div>
-      <div className="daynotes-panes">
+      <div className={`daynotes-panes${stacked ? " stacked" : ""}`}>
         <NotePane key={primaryKey} noteKey={primaryKey} />
-        {pins
-          .filter((k) => k !== primaryKey)
-          .map((k) => (
+        {visiblePins.map((pin, i) => {
+          const key = resolvePin(pin);
+          const follows = pin.startsWith(FOLLOW);
+          return (
             <NotePane
-              key={k}
-              noteKey={k}
+              key={key}
+              noteKey={key}
               pinned
-              onUnpin={() => savePins(pins.filter((p) => p !== k))}
+              actions={
+                <>
+                  <button
+                    className="pin-chip"
+                    title={
+                      follows
+                        ? "follows the timeline — click to lock to this period"
+                        : "locked to this period — click to follow the timeline"
+                    }
+                    onClick={() =>
+                      replacePin(pin, follows ? key : `${FOLLOW}${scopeOf(key)}`)
+                    }
+                  >
+                    {follows ? "follows" : "locked"}
+                  </button>
+                  <button
+                    className="row-icon"
+                    title="move pane back"
+                    disabled={i === 0}
+                    onClick={() => movePin(pin, -1)}
+                  >
+                    ‹
+                  </button>
+                  <button
+                    className="row-icon"
+                    title="move pane forward"
+                    disabled={i === visiblePins.length - 1}
+                    onClick={() => movePin(pin, 1)}
+                  >
+                    ›
+                  </button>
+                  <button
+                    className="row-icon"
+                    title="unpin"
+                    onClick={() => savePins(pins.filter((p) => p !== pin))}
+                  >
+                    ×
+                  </button>
+                </>
+              }
             />
-          ))}
+          );
+        })}
         <div className="daynotes-pin">
           {picking ? (
             SCOPES.map((s) => (
               <button
                 key={s}
                 className="pin-chip"
-                title={`pin the ${s} note for the selected date — stays while you navigate`}
+                title={`open the ${s} note alongside — follows the timeline until you lock it`}
                 onClick={() => addPin(s)}
               >
                 {s}
@@ -198,11 +328,11 @@ export function PeriodNotes({ date, view, weekStartsOn }: Props) {
 function NotePane({
   noteKey,
   pinned = false,
-  onUnpin,
+  actions,
 }: {
   noteKey: string;
   pinned?: boolean;
-  onUnpin?: () => void;
+  actions?: ReactNode;
 }) {
   const [value, setValue] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "saved" | "saving">("idle");
@@ -279,11 +409,7 @@ function NotePane({
           <span className={`daynotes-status ${status}`}>
             {status === "saving" ? "saving…" : status === "saved" ? "saved" : ""}
           </span>
-          {pinned && (
-            <button className="row-icon" title="unpin" onClick={onUnpin}>
-              ×
-            </button>
-          )}
+          {actions}
         </span>
       </div>
       {value === null ? (

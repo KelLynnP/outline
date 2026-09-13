@@ -2028,7 +2028,7 @@ button.tog.on {
 .daynotes-input .cm-scroller {
   overflow: auto;
   font-family: var(--sans);
-  font-size: 15px;
+  font-size: var(--note-fs, 15px);
   line-height: 1.65;
 }
 .daynotes-input .cm-content {
@@ -2184,9 +2184,14 @@ button.tog.on {
   flex-direction: column;
   gap: 12px;
 }
+.daynotes-panes.stacked { flex-direction: column; }
+.daynotes-panes.stacked .notepane { flex-basis: auto; }
 .notepane.pinned .daynotes-input { border-style: dashed; }
 /* row-icon is hover-revealed in task rows; in notes it's always visible */
 .daynotes .row-icon { color: var(--ink-quiet); }
+.daynotes .row-icon:disabled { opacity: 0.3; cursor: default; background: transparent; }
+.daynotes-actions .row-icon { width: auto; min-width: 20px; padding: 0 3px; }
+.daynotes-actions .zoom-reset { font-family: var(--mono); font-size: 10px; }
 .daynotes-head-right { display: flex; align-items: center; gap: 6px; }
 .daynotes-pin { display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
 .pin-chip {
@@ -2201,18 +2206,35 @@ button.tog.on {
 }
 .pin-chip:hover { color: var(--ink); border-color: var(--ink-quiet); }
 
+/* notes-only themes: the section repaints itself via the shared vars */
+.daynotes.dark,
+.daynotes.sepia {
+  margin: -20px -28px -28px;
+  padding: 20px 28px 28px;
+  border-radius: inherit;
+}
+.daynotes.dark .daynotes-input .cm-editor,
+.daynotes.sepia .daynotes-input .cm-editor { background: var(--card); color: var(--ink); }
+.daynotes.sepia {
+  --card: #f6eedb;
+  --ink: #3d3325;
+  --ink-soft: #6b5c46;
+  --ink-quiet: #9c8c6f;
+  --line-soft: #e2d5b8;
+  background: #ece2c9;
+}
+.daynotes.sepia .daynotes-input .cm-selectionBackground,
+.daynotes.sepia .daynotes-input .cm-content ::selection {
+  background: #dfcb9a !important;
+}
 .daynotes.dark {
   --card: #1b1e20;
   --ink: #ece8df;
   --ink-soft: #c5c0b7;
   --ink-quiet: #85837e;
   --line-soft: #34383a;
-  margin: -20px -28px -28px;
-  padding: 20px 28px 28px;
-  border-radius: inherit;
   background: #141617;
 }
-.daynotes.dark .daynotes-input .cm-editor { background: var(--card); color: var(--ink); }
 .daynotes.dark .daynotes-input .cm-selectionBackground,
 .daynotes.dark .daynotes-input .cm-content ::selection {
   background: #344b5d !important;
@@ -2237,6 +2259,7 @@ button.tog.on {
   background: #fbf9f4;
 }
 .daynotes.focused.dark { background: #141617; }
+.daynotes.focused.sepia { background: #ece2c9; }
 .daynotes.focused .daynotes-panes {
   width: 100%;
   margin: 0;
@@ -3331,7 +3354,7 @@ button.tog.on {
 .m-notes .daynotes-input .cm-editor,
 .m-notes .daynotes-input .cm-content { min-height: 70vh; }
 /* ≥16px or iOS Safari zooms the viewport when the editor gains focus */
-.m-notes .daynotes-input .cm-content { font-size: 16px; }
+.m-notes .daynotes-input .cm-content { font-size: max(16px, var(--note-fs, 15px)); }
 .m-notes .note-formatbar {
   opacity: 1;
   max-width: calc(100% - 24px);
