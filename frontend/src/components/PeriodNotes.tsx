@@ -499,7 +499,11 @@ export function PeriodNotes({
             return (
               <Fragment key={PRIMARY}>
                 {divider}
+                {/* keyed by note so the editor remounts when the period
+                    changes — MarkdownNoteEditor only reads initialValue
+                    on mount. */}
                 <NotePane
+                  key={primaryKey}
                   noteKey={primaryKey}
                   paneId={PRIMARY}
                   label={labelFor(primaryKey, customPages)}
@@ -519,6 +523,7 @@ export function PeriodNotes({
             <Fragment key={pin}>
               {divider}
               <NotePane
+                key={key}
                 noteKey={key}
                 paneId={pin}
                 label={labelFor(key, customPages)}
