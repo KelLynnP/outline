@@ -13,7 +13,7 @@ import { DailyCalendar } from "../components/DailyCalendar.js";
 import { WeekCalendar } from "../components/WeekCalendar.js";
 import { MonthCalendar } from "../components/MonthCalendar.js";
 import { Roadmap } from "../components/Roadmap.js";
-import { PeriodNotes } from "../components/PeriodNotes.js";
+import { PeriodNotes, loadTheme } from "../components/PeriodNotes.js";
 import { TaskTable } from "../components/Tasks.js";
 import { useToggle } from "../useToggle.js";
 
@@ -37,6 +37,7 @@ export function HomePage() {
   );
   const [tasksOpen, toggleTasksSection] = useToggle("home.tasksOpen", true);
   const [notesOpen, toggleNotesSection] = useToggle("home.notesOpen", true);
+  const [notesTheme, setNotesTheme] = useState(loadTheme);
   const [order, setOrder] = useState<SectionKey[]>(() => {
     const stored = (localStorage.getItem("home.sectionOrder") ?? "").split(",");
     const valid = stored.filter(
@@ -231,7 +232,7 @@ export function HomePage() {
       </>
     ),
     notes: (
-      <>
+      <div className={`notes-section ${notesTheme}`}>
         <button className="section-toggle" onClick={toggleNotesSection}>
           {notesOpen ? "▾" : "▸"} notes
         </button>
@@ -241,10 +242,13 @@ export function HomePage() {
               date={selectedDate}
               view={view}
               weekStartsOn={settings.calendar.week_starts_on}
+              items={items}
+              onTasksChange={load}
+              onThemeChange={setNotesTheme}
             />
           </div>
         )}
-      </>
+      </div>
     ),
   };
 

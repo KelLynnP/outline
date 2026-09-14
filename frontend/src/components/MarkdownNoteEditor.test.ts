@@ -5,14 +5,19 @@
 
 import { EditorState, type TransactionSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import type { CaughtItem } from "@life-console/shared";
 import {
   changeLineIndent,
   cleanFormatting,
   clearFormatting,
   continueBullet,
+  findTaskTrigger,
   formattingJanitor,
   insertJournalNewline,
+  matchingTasks,
   removeBulletBackward,
+  taskReferences,
+  taskToken,
 } from "./MarkdownNoteEditor.js";
 
 let failures = 0;
@@ -192,6 +197,61 @@ check(
   "empty wrappers dropped on load",
   cleanFormatting('<mark data-color="green"><mark data-color="yellow"></mark></mark>'),
   "",
+);
+
+// --- Task objects -------------------------------------------------------------
+
+check(
+  "empty task trigger",
+  findTaskTrigger("    - []", 8),
+  { from: 6, to: 8, query: "" },
+);
+check(
+  "task trigger carries lookup text",
+  findTaskTrigger("- [] tread tuning", 17),
+  { from: 2, to: 17, query: "tread tuning" },
+);
+check("task trigger must start at a word boundary", findTaskTrigger("word[]", 6), null);
+check(
+  "task references preserve duplicate insertions",
+  taskReferences("{{task:12}}\n- {{task:12|show=due,tags}}\n{{task:7}}"),
+  [12, 12, 7],
+);
+check(
+  "default task display keeps the short token",
+  taskToken(12, { linear: true, assignee: true, due: true, tags: true }),
+  "{{task:12}}",
+);
+check(
+  "task display choices persist in its reference",
+  taskToken(12, { linear: false, assignee: true, due: true, tags: false }),
+  "{{task:12|show=assignee,due}}",
+);
+
+const task = (id: number, text: string, linearIdentifier: string | null = null) =>
+  ({
+    id,
+    text,
+    status: "open",
+    source: linearIdentifier ? "linear" : "manual",
+    linear_identifier: linearIdentifier,
+    linear_team: linearIdentifier ? "ROB" : null,
+    assignee: id === 1 ? "Winston" : null,
+    tags: id === 1 ? ["robot"] : [],
+  }) as CaughtItem;
+const lookupItems = [
+  task(1, "Pick tread tuning values"),
+  task(2, "Review engineer resumes", "ROB-42"),
+];
+check(
+  "task lookup searches assignee",
+  matchingTasks(lookupItems, "winston").map((item) => item.id),
+  [1],
+);
+check(
+  "task lookup searches Linear identifier",
+  matchingTasks(lookupItems, "ROB-42").map((item) => item.id),
+  [2],
 );
 
 // ------------------------------------------------------------------------------
