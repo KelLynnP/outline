@@ -117,6 +117,15 @@ light/sepia/dark (`notes.theme`) and stacked vs side-by-side panes
 read/write `stops.notes`, other keys this table — all via
 `GET/PUT /api/notes/:key`.
 
+### note task objects
+
+Typing `[]` in a note opens an inline picker for local and Linear tasks.
+Choosing a task inserts a stable item reference; choosing **new** creates a
+local task first. The rendered object stays synced with the task board and
+Linear, supports completion (with confirmation for Linear), and expands
+inline for notes, due date, assignee, tags, and optional Linear conversion.
+Removing the reference never removes the underlying task.
+
 `listAllItems` joins task events onto items as `scheduled_date` /
 `scheduled_time` — "scheduled" in the UI means "has a calendar block".
 

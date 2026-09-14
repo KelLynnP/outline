@@ -1,24 +1,37 @@
 import {
+  Fragment,
   useEffect,
   useRef,
   useState,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import {
   startOfWeekISO,
+  type CaughtItem,
   type WeekStart,
 } from "@life-console/shared";
 import { api } from "../api.js";
 import { useToggle } from "../useToggle.js";
 import { MarkdownNoteEditor } from "./MarkdownNoteEditor.js";
 
-type Scope = "day" | "week" | "month" | "year" | "media";
+type BuiltinScope = "day" | "week" | "month" | "year" | "media";
+type Scope = BuiltinScope | `page:${string}`;
 
-const SCOPES: Scope[] = ["day", "week", "month", "year", "media"];
+const BUILTIN_SCOPES: BuiltinScope[] = ["day", "week", "month", "year", "media"];
 
 const DAY_MS = 86_400_000;
+
+/** Custom named pages behave like "media" — single timeless note under a
+ *  stable key ("page-<slug>"). Names are user-typed; slugs are derived. */
+const slugify = (name: string) =>
+  name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 
 const short = (d: Date) =>
   d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -27,30 +40,30 @@ const short = (d: Date) =>
  *  week/month/year prefix keys go to period_notes. Media log is a single
  *  timeless note under the fixed key "media-log". */
 function keyFor(scope: Scope, date: string, weekStartsOn: WeekStart): string {
-  return scope === "day"
-    ? date
-    : scope === "week"
-      ? `week-${startOfWeekISO(date, weekStartsOn)}`
-      : scope === "month"
-        ? `month-${date.slice(0, 7)}`
-        : scope === "year"
-          ? `year-${date.slice(0, 4)}`
-          : "media-log";
+  if (scope === "day") return date;
+  if (scope === "week") return `week-${startOfWeekISO(date, weekStartsOn)}`;
+  if (scope === "month") return `month-${date.slice(0, 7)}`;
+  if (scope === "year") return `year-${date.slice(0, 4)}`;
+  if (scope === "media") return "media-log";
+  return `page-${scope.slice(5)}`; // page:<slug>
 }
 
-const scopeOf = (key: string): Scope =>
-  key === "media-log"
-    ? "media"
-    : key.startsWith("week-")
-      ? "week"
-      : key.startsWith("month-")
-        ? "month"
-        : key.startsWith("year-")
-          ? "year"
-          : "day";
+const scopeOf = (key: string): Scope => {
+  if (key === "media-log") return "media";
+  if (key.startsWith("week-")) return "week";
+  if (key.startsWith("month-")) return "month";
+  if (key.startsWith("year-")) return "year";
+  if (key.startsWith("page-")) return `page:${key.slice(5)}`;
+  return "day";
+};
 
-function labelFor(key: string): string {
-  switch (scopeOf(key)) {
+function labelFor(key: string, customPages: string[] = []): string {
+  if (key.startsWith("page-")) {
+    const slug = key.slice(5);
+    return customPages.find((n) => slugify(n) === slug) ?? slug.replace(/-/g, " ");
+  }
+  const scope = scopeOf(key);
+  switch (scope) {
     case "day":
       return new Date(key + "T00:00:00").toLocaleDateString("en-US", {
         weekday: "long",
@@ -71,6 +84,8 @@ function labelFor(key: string): string {
       return key.slice(5);
     case "media":
       return "media log";
+    default:
+      return key;
   }
 }
 
@@ -81,9 +96,25 @@ const PINS_KEY = "notes.pins";
 const FOLLOW = "follow:";
 const PRIMARY = "primary";
 const PANE_ORDER_KEY = "notes.paneOrder";
+const PANE_WIDTHS_KEY = "notes.paneWidths";
+const CUSTOM_PAGES_KEY = "notes.customPages";
 const loadPins = (): string[] => {
   try {
     return JSON.parse(localStorage.getItem(PINS_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+};
+const loadPaneWidths = (): Record<string, number> => {
+  try {
+    return JSON.parse(localStorage.getItem(PANE_WIDTHS_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+};
+const loadCustomPages = (): string[] => {
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOM_PAGES_KEY) ?? "[]");
   } catch {
     return [];
   }
@@ -171,13 +202,22 @@ interface Props {
   date: string;
   view: "day" | "week" | "month";
   weekStartsOn: WeekStart;
+  items: CaughtItem[];
+  onTasksChange: () => void | Promise<void>;
   // Lets the page repaint the surrounding section (header) in the same theme.
   onThemeChange?: (theme: Theme) => void;
 }
 
 // Notes panes: one follows the selected day/week/month, plus any pinned
 // periods. Each period is its own note.
-export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) {
+export function PeriodNotes({
+  date,
+  view,
+  weekStartsOn,
+  items,
+  onTasksChange,
+  onThemeChange,
+}: Props) {
   const [pins, setPins] = useState<string[]>(loadPins);
   const [paneOrder, setPaneOrder] = useState<string[]>(() => {
     try {
@@ -186,6 +226,11 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
       return [PRIMARY];
     }
   });
+  const [paneWidths, setPaneWidths] = useState<Record<string, number>>(loadPaneWidths);
+  const [customPages, setCustomPages] = useState<string[]>(loadCustomPages);
+  const paneWidthsRef = useRef(paneWidths);
+  paneWidthsRef.current = paneWidths;
+  const panesRef = useRef<HTMLDivElement>(null);
   const [draggedPane, setDraggedPane] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -238,14 +283,52 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
     setPaneOrder(next);
     localStorage.setItem(PANE_ORDER_KEY, JSON.stringify(next));
   };
+  const savePaneWidths = (next: Record<string, number>) => {
+    setPaneWidths(next);
+    localStorage.setItem(PANE_WIDTHS_KEY, JSON.stringify(next));
+  };
+  const renamePaneWidth = (from: string, to: string) => {
+    const w = paneWidths[from];
+    if (w === undefined) return;
+    const { [from]: _, ...rest } = paneWidths;
+    savePaneWidths({ ...rest, [to]: w });
+  };
+  const dropPaneWidth = (id: string) => {
+    if (paneWidths[id] === undefined) return;
+    const { [id]: _, ...rest } = paneWidths;
+    savePaneWidths(rest);
+  };
   const addPin = (scope: Scope) => {
     setPicking(false);
     const pin = `${FOLLOW}${scope}`;
     if (!pins.includes(pin)) savePins([...pins, pin]);
   };
+  const saveCustomPages = (next: string[]) => {
+    setCustomPages(next);
+    localStorage.setItem(CUSTOM_PAGES_KEY, JSON.stringify(next));
+  };
+  const addCustomPage = () => {
+    const name = window.prompt("name for the new page")?.trim();
+    if (!name) return;
+    const slug = slugify(name);
+    if (!slug) return;
+    // dedupe by slug: if it already exists, just jump to it
+    if (!customPages.some((p) => slugify(p) === slug)) {
+      saveCustomPages([...customPages, name]);
+    }
+    setScope(`page:${slug}`);
+  };
+  const removeCustomPage = (name: string) => {
+    if (!window.confirm(`remove "${name}" tab? the note itself stays saved.`)) return;
+    saveCustomPages(customPages.filter((p) => p !== name));
+    const slug = slugify(name);
+    if (scope === `page:${slug}`) setScope("day");
+    savePins(pins.filter((p) => p !== `page-${slug}` && p !== `${FOLLOW}page:${slug}`));
+  };
   const replacePin = (pin: string, next: string) => {
     savePins(pins.map((p) => (p === pin ? next : p)));
     savePaneOrder(paneOrder.map((p) => (p === pin ? next : p)));
+    renamePaneWidth(pin, next);
   };
   const movePane = (target: string) => {
     if (!draggedPane || draggedPane === target) return;
@@ -258,6 +341,39 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
     setDraggedPane(null);
   };
 
+  // Drag between two adjacent panes. Snapshot every pane's current pixel
+  // width (so newly-added panes with no stored size get an explicit value),
+  // then move only the boundary between L and R — their combined width
+  // stays constant, so no other pane shifts and nothing can wrap.
+  const startResize = (leftId: string, rightId: string, event: ReactMouseEvent) => {
+    const container = panesRef.current;
+    if (!container) return;
+    event.preventDefault();
+    const snapshot: Record<string, number> = {};
+    container.querySelectorAll<HTMLElement>("[data-pane-id]").forEach((el) => {
+      snapshot[el.dataset.paneId!] = el.offsetWidth;
+    });
+    const leftStart = snapshot[leftId];
+    const rightStart = snapshot[rightId];
+    const combined = leftStart + rightStart;
+    const startX = event.clientX;
+    const MIN = 180;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    const onMove = (ev: MouseEvent) => {
+      const newLeft = Math.max(MIN, Math.min(combined - MIN, leftStart + ev.clientX - startX));
+      setPaneWidths({ ...snapshot, [leftId]: newLeft, [rightId]: combined - newLeft });
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.userSelect = prevUserSelect;
+      localStorage.setItem(PANE_WIDTHS_KEY, JSON.stringify(paneWidthsRef.current));
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
   const themeTitle =
     theme === "light" ? "sepia notes" : theme === "sepia" ? "dark notes" : "light notes";
 
@@ -268,7 +384,7 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
     >
       <div className="daynotes-controls">
         <div className="daynotes-scopes" aria-label="Note period">
-          {SCOPES.map((option) => (
+          {BUILTIN_SCOPES.map((option) => (
             <button
               key={option}
               type="button"
@@ -278,6 +394,32 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
               {option}
             </button>
           ))}
+          {customPages.map((name) => {
+            const pageScope: Scope = `page:${slugify(name)}`;
+            return (
+              <button
+                key={name}
+                type="button"
+                className={scope === pageScope ? "active" : ""}
+                title="right-click to remove"
+                onClick={() => setScope(pageScope)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  removeCustomPage(name);
+                }}
+              >
+                {name}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className="daynotes-add-page"
+            title="new named page (like media)"
+            onClick={addCustomPage}
+          >
+            +
+          </button>
         </div>
         <div className="daynotes-actions">
           <span className="stepper-label" title="text size">A</span>
@@ -309,16 +451,28 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
             {focused ? "↙" : "↗"}
           </button>
           {picking ? (
-            SCOPES.map((s) => (
-              <button
-                key={s}
-                className="pin-chip"
-                title={`open the ${s} note alongside — follows the timeline until you lock it`}
-                onClick={() => addPin(s)}
-              >
-                {s}
-              </button>
-            ))
+            <>
+              {BUILTIN_SCOPES.map((s) => (
+                <button
+                  key={s}
+                  className="pin-chip"
+                  title={`open the ${s} note alongside — follows the timeline until you lock it`}
+                  onClick={() => addPin(s)}
+                >
+                  {s}
+                </button>
+              ))}
+              {customPages.map((name) => (
+                <button
+                  key={name}
+                  className="pin-chip"
+                  title={`open the "${name}" page alongside`}
+                  onClick={() => addPin(`page:${slugify(name)}`)}
+                >
+                  {name}
+                </button>
+              ))}
+            </>
           ) : (
             <button
               className="row-icon notes-add-pane"
@@ -330,60 +484,81 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
           )}
         </div>
       </div>
-      <div className={`daynotes-panes${stacked ? " stacked" : ""}`}>
-        {orderedPaneIds.map((paneId) => {
+      <div ref={panesRef} className={`daynotes-panes${stacked ? " stacked" : ""}`}>
+        {orderedPaneIds.map((paneId, i) => {
           const pin = paneId === PRIMARY ? null : paneId;
+          const grow = paneWidths[paneId] ?? 1;
+          const divider = !stacked && i > 0 && (
+            <div
+              className="pane-divider"
+              title="drag to resize"
+              onMouseDown={(event) => startResize(orderedPaneIds[i - 1], paneId, event)}
+            />
+          );
           if (!pin) {
             return (
-              <NotePane
-                key={primaryKey}
-                noteKey={primaryKey}
-                paneId={PRIMARY}
-                dragging={draggedPane === PRIMARY}
-                onDragStart={setDraggedPane}
-                onDrop={movePane}
-              />
+              <Fragment key={PRIMARY}>
+                {divider}
+                <NotePane
+                  noteKey={primaryKey}
+                  paneId={PRIMARY}
+                  label={labelFor(primaryKey, customPages)}
+                  items={items}
+                  onTasksChange={onTasksChange}
+                  grow={grow}
+                  dragging={draggedPane === PRIMARY}
+                  onDragStart={setDraggedPane}
+                  onDrop={movePane}
+                />
+              </Fragment>
             );
           }
           const key = resolvePin(pin);
           const follows = pin.startsWith(FOLLOW);
           return (
-            <NotePane
-              key={key}
-              noteKey={key}
-              paneId={pin}
-              pinned
-              dragging={draggedPane === pin}
-              onDragStart={setDraggedPane}
-              onDrop={movePane}
-              actions={
-                <>
-                  <button
-                    className="pin-chip"
-                    title={
-                      follows
-                        ? "follows the timeline — click to lock to this period"
-                        : "locked to this period — click to follow the timeline"
-                    }
-                    onClick={() =>
-                      replacePin(pin, follows ? key : `${FOLLOW}${scopeOf(key)}`)
-                    }
-                  >
-                    {follows ? "follows" : "locked"}
-                  </button>
-                  <button
-                    className="row-icon"
-                    title="unpin"
-                    onClick={() => {
-                      savePins(pins.filter((p) => p !== pin));
-                      savePaneOrder(paneOrder.filter((p) => p !== pin));
-                    }}
-                  >
-                    ×
-                  </button>
-                </>
-              }
-            />
+            <Fragment key={pin}>
+              {divider}
+              <NotePane
+                noteKey={key}
+                paneId={pin}
+                label={labelFor(key, customPages)}
+                items={items}
+                onTasksChange={onTasksChange}
+                grow={grow}
+                pinned
+                dragging={draggedPane === pin}
+                onDragStart={setDraggedPane}
+                onDrop={movePane}
+                actions={
+                  <>
+                    <button
+                      className="pin-chip"
+                      title={
+                        follows
+                          ? "follows the timeline — click to lock to this period"
+                          : "locked to this period — click to follow the timeline"
+                      }
+                      onClick={() =>
+                        replacePin(pin, follows ? key : `${FOLLOW}${scopeOf(key)}`)
+                      }
+                    >
+                      {follows ? "follows" : "locked"}
+                    </button>
+                    <button
+                      className="row-icon"
+                      title="unpin"
+                      onClick={() => {
+                        savePins(pins.filter((p) => p !== pin));
+                        savePaneOrder(paneOrder.filter((p) => p !== pin));
+                        dropPaneWidth(pin);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </>
+                }
+              />
+            </Fragment>
           );
         })}
       </div>
@@ -394,6 +569,10 @@ export function PeriodNotes({ date, view, weekStartsOn, onThemeChange }: Props) 
 function NotePane({
   noteKey,
   paneId,
+  label,
+  items,
+  onTasksChange,
+  grow = 1,
   pinned = false,
   dragging = false,
   onDragStart,
@@ -402,6 +581,10 @@ function NotePane({
 }: {
   noteKey: string;
   paneId: string;
+  label: string;
+  items: CaughtItem[];
+  onTasksChange: () => void | Promise<void>;
+  grow?: number;
   pinned?: boolean;
   dragging?: boolean;
   onDragStart: (paneId: string) => void;
@@ -478,6 +661,8 @@ function NotePane({
   return (
     <div
       className={`notepane${pinned ? " pinned" : ""}${dragging ? " dragging" : ""}`}
+      data-pane-id={paneId}
+      style={{ flexGrow: grow }}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -496,7 +681,7 @@ function NotePane({
           }}
           onDragEnd={() => onDragStart("")}
         >
-          ⠿ notes · {labelFor(noteKey)}
+          ⠿ notes · {label}
         </span>
         <span className="daynotes-head-right">
           <span className={`daynotes-status ${status}`}>
@@ -510,10 +695,13 @@ function NotePane({
       ) : (
         <MarkdownNoteEditor
           initialValue={value}
+          items={items}
           emptyText={
             noteKey === "media-log"
               ? "books, shows, films, music — whatever you're taking in."
-              : `anything — reflections, plans, half-thoughts. writes stay on this ${scopeOf(noteKey)}.`
+              : noteKey.startsWith("page-")
+                ? "anything — this page keeps its own note, no dates attached."
+                : `anything — reflections, plans, half-thoughts. writes stay on this ${scopeOf(noteKey)}.`
           }
           onChange={(next) => {
             valueRef.current = next;
@@ -526,6 +714,7 @@ function NotePane({
             );
           }}
           onSave={() => void saveRef.current()}
+          onTasksChange={onTasksChange}
         />
       )}
     </div>

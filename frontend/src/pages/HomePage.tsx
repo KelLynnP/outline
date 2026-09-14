@@ -242,6 +242,8 @@ export function HomePage() {
               date={selectedDate}
               view={view}
               weekStartsOn={settings.calendar.week_starts_on}
+              items={items}
+              onTasksChange={load}
               onThemeChange={setNotesTheme}
             />
           </div>
