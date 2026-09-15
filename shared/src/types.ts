@@ -78,6 +78,7 @@ export interface CalendarEvent {
 export interface RoadmapLane {
   id: number;
   name: string;
+  color: string;
   position: number;
 }
 

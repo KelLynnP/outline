@@ -186,7 +186,7 @@ export const api = {
     fetch(`/api/events/${id}`, { method: "DELETE" }).then((r) => j<{ ok: boolean }>(r)),
   roadmapLanes: () =>
     fetch("/api/roadmap/lanes").then((r) => j<RoadmapLane[]>(r)),
-  addRoadmapLane: (body: { name: string }) =>
+  addRoadmapLane: (body: { name: string; color?: string }) =>
     fetch("/api/roadmap/lanes", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -194,7 +194,7 @@ export const api = {
     }).then((r) => j<RoadmapLane>(r)),
   updateRoadmapLane: (
     id: number,
-    patch: Partial<Pick<RoadmapLane, "name" | "position">>,
+    patch: Partial<Pick<RoadmapLane, "name" | "color" | "position">>,
   ) =>
     fetch(`/api/roadmap/lanes/${id}`, {
       method: "PATCH",

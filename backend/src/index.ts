@@ -433,7 +433,7 @@ app.delete("/api/events/:id", (c) => {
 app.get("/api/roadmap/lanes", (c) => c.json(listRoadmapLanes()));
 
 app.post("/api/roadmap/lanes", async (c) => {
-  const body = (await c.req.json()) as { name: string };
+  const body = (await c.req.json()) as { name: string; color?: string };
   if (!body?.name?.trim()) return c.json({ error: "name_required" }, 400);
   return c.json(addRoadmapLane(body));
 });
@@ -554,6 +554,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const staticDir = path.resolve(here, "..", "..", "frontend", "dist");
 if (fs.existsSync(staticDir)) {
   app.use("/*", serveStatic({ root: path.relative(process.cwd(), staticDir) || "." }));
+  // SPA fallback so client-side paths (e.g. /timelines) load the app.
+  const index = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
+  app.get("*", (c) => (c.req.path.startsWith("/api/") ? c.notFound() : c.html(index)));
 }
 
 scheduleJobs();

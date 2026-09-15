@@ -8,11 +8,10 @@ import {
   type TodayView,
 } from "@life-console/shared";
 import { api } from "../api.js";
-import { TimelineV2 } from "../components/TimelineV2.js";
+import { Timeline } from "../components/Timeline.js";
 import { DailyCalendar } from "../components/DailyCalendar.js";
 import { WeekCalendar } from "../components/WeekCalendar.js";
 import { MonthCalendar } from "../components/MonthCalendar.js";
-import { Roadmap } from "../components/Roadmap.js";
 import { PeriodNotes } from "../components/PeriodNotes.js";
 import { TaskTable } from "../components/Tasks.js";
 import { useToggle } from "../useToggle.js";
@@ -224,7 +223,6 @@ export function HomePage() {
                 />
               )}
 
-              <Roadmap selectedISO={selectedDate} />
             </div>
           </div>
         )}
@@ -275,13 +273,15 @@ export function HomePage() {
       <div className="workboard">
         {/* ---------------- timeline row ---------------- */}
         <div className="workboard-timeline">
-          <TimelineV2
+          <Timeline
             line={line}
-            simple
+            items={items}
+            settings={settings}
             selectedDate={selectedDate}
             selectedRange={selectedRange}
             onSelectDate={setSelectedDate}
             onDropTask={scheduleTaskOnDay}
+            onChange={load}
           />
         </div>
 

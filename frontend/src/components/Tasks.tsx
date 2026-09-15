@@ -25,11 +25,12 @@ interface Props {
   settings: Settings;
   onCreated: () => void;
   compact?: boolean;
+  initialDue?: string;
 }
 
-export function TaskComposer({ settings, onCreated, compact = false }: Props) {
+export function TaskComposer({ settings, onCreated, compact = false, initialDue = "" }: Props) {
   const [text, setText] = useState("");
-  const [dueDate, setDueDate] = useState("");
+  const [dueDate, setDueDate] = useState(initialDue);
   const [priority, setPriority] = useState<Priority>(2);
   const [tagInput, setTagInput] = useState("");
   const [assignee, setAssignee] = useState("");
@@ -927,7 +928,7 @@ function Row({
 /* read-only here (Linear owns them) with a jump-out link.             */
 /* ------------------------------------------------------------------ */
 
-function TaskDetailModal({
+export function TaskDetailModal({
   item,
   onChange,
   onClose,

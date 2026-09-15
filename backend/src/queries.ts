@@ -695,15 +695,19 @@ export function listRoadmapLanes(): RoadmapLane[] {
     .all() as RoadmapLaneRow[];
 }
 
-export function addRoadmapLane(input: { name: string }): RoadmapLane {
+export function addRoadmapLane(input: { name: string; color?: string }): RoadmapLane {
   const position = (
     db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS value FROM roadmap_lanes").get() as {
       value: number;
     }
   ).value;
-  const info = db
-    .prepare("INSERT INTO roadmap_lanes (name, position) VALUES (?, ?)")
-    .run(input.name.trim(), position);
+  const info = input.color
+    ? db
+        .prepare("INSERT INTO roadmap_lanes (name, color, position) VALUES (?, ?, ?)")
+        .run(input.name.trim(), input.color, position)
+    : db
+        .prepare("INSERT INTO roadmap_lanes (name, position) VALUES (?, ?)")
+        .run(input.name.trim(), position);
   return db
     .prepare("SELECT * FROM roadmap_lanes WHERE id = ?")
     .get(info.lastInsertRowid) as RoadmapLaneRow;
@@ -711,16 +715,17 @@ export function addRoadmapLane(input: { name: string }): RoadmapLane {
 
 export function updateRoadmapLane(
   id: number,
-  patch: Partial<Pick<RoadmapLane, "name" | "position">>,
+  patch: Partial<Pick<RoadmapLane, "name" | "color" | "position">>,
 ): RoadmapLane | null {
   const current = db.prepare("SELECT * FROM roadmap_lanes WHERE id = ?").get(id) as
     | RoadmapLaneRow
     | undefined;
   if (!current) return null;
   db.prepare(
-    "UPDATE roadmap_lanes SET name = ?, position = ? WHERE id = ?",
+    "UPDATE roadmap_lanes SET name = ?, color = ?, position = ? WHERE id = ?",
   ).run(
     patch.name?.trim() || current.name,
+    patch.color ?? current.color,
     patch.position ?? current.position,
     id,
   );

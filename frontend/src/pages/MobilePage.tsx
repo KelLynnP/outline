@@ -6,26 +6,28 @@ import {
   type Settings,
 } from "@life-console/shared";
 import { api } from "../api.js";
-import { TimelineV2 } from "../components/TimelineV2.js";
 import { DailyCalendar } from "../components/DailyCalendar.js";
-import { Roadmap } from "../components/Roadmap.js";
+import { MobileHorizon } from "../components/MobileHorizon.js";
 import { PeriodNotes } from "../components/PeriodNotes.js";
 import { TaskTable } from "../components/Tasks.js";
 
-type Screen = "notes" | "calendar" | "tasks" | "timeline" | "roadmap";
+type Screen = "notes" | "calendar" | "tasks" | "horizon";
 
 const MODULES: { key: Screen; hint: string }[] = [
   { key: "notes", hint: "blank page for the day" },
   { key: "calendar", hint: "today's schedule" },
   { key: "tasks", hint: "capture + check off" },
-  { key: "timeline", hint: "the day spine" },
-  { key: "roadmap", hint: "lanes + horizons" },
+  { key: "horizon", hint: "timeline + roadmap · week to quarter" },
 ];
 
 // Phone shell: a launcher home, then one full-screen module at a time.
 // Desktop keeps HomePage untouched — App.tsx picks per viewport width.
 export function MobilePage() {
-  const [screen, setScreen] = useState<Screen | null>(null);
+  // ?m=horizon opens a module directly (handy for home-screen bookmarks)
+  const [screen, setScreen] = useState<Screen | null>(() => {
+    const m = new URLSearchParams(window.location.search).get("m");
+    return MODULES.some((x) => x.key === m) ? (m as Screen) : null;
+  });
   const [selectedDate, setSelectedDate] = useState(() => localDateISO());
   const [line, setLine] = useState<LineView | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -134,20 +136,9 @@ export function MobilePage() {
         {screen === "tasks" && (
           <TaskTable items={items} settings={settings} onChange={load} />
         )}
-        {screen === "timeline" && (
-          <div className="m-timeline-scroll">
-            <div className="m-timeline-inner">
-              <TimelineV2
-                line={line}
-                simple
-                selectedDate={selectedDate}
-                selectedRange={{ from: selectedDate, to: selectedDate }}
-                onSelectDate={setSelectedDate}
-              />
-            </div>
-          </div>
+        {screen === "horizon" && (
+          <MobileHorizon line={line} items={items} settings={settings} onChange={load} />
         )}
-        {screen === "roadmap" && <Roadmap selectedISO={selectedDate} />}
       </div>
     </div>
   );
