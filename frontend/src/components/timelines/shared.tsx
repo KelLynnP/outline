@@ -158,8 +158,8 @@ export function Axis({ s, y, m, labelToday = true }: { s: Scale; y: number; m: M
     : `${dt.toLocaleString("en-US", MON)}${withYear || dt.getMonth() === 0 ? ` ${dt.getFullYear()}` : ""}`;
   const firstDivider = s.dates.findIndex((d) => parse(d).getDate() === 1);
   const showEdgeLabel = firstDivider === -1 || firstDivider * w > 70; // no divider near the left edge → label the edge
-  const stopR = w >= 6 ? 4.5 : w >= 2.5 ? 2.5 : 1.5;
-  const stopStroke = w >= 6 ? 2 : 1.2;
+  const stopR = w >= 6 ? 3 : w >= 2.5 ? 2 : 1.5; // journal stops: small enough not to bury the track
+  const stopStroke = w >= 6 ? 1.5 : 1.2;
   return (
     <g>
       {showEdgeLabel && (

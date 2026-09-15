@@ -219,7 +219,7 @@ export function Toggle({ on, toggle, label }: { on: boolean; toggle: () => void;
 
 export type Draft = Omit<RoadmapEntry, "id"> & { id?: number };
 
-export function SpanEditor({ draft, lanes, onClose, onSaved }: { draft: Draft; lanes: RoadmapLane[]; onClose: () => void; onSaved: () => void }) {
+export function SpanEditor({ draft, lanes, onClose, onSaved }: { draft: Draft; lanes: RoadmapLane[]; onClose: () => void; onSaved: (saved: Draft) => void }) {
   const [d, setD] = useState(draft);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
   // drag the box by its title bar so the timeline stays visible
@@ -237,7 +237,7 @@ export function SpanEditor({ draft, lanes, onClose, onSaved }: { draft: Draft; l
     const body = { ...d, title: d.title.trim(), end_date: d.kind === "span" ? d.end_date ?? d.start_date : null };
     if (d.id) await api.updateRoadmapEntry(d.id, body);
     else await api.addRoadmapEntry(body);
-    onSaved();
+    onSaved(body);
   };
   return (
     <div className="linear-modal-overlay tl-editor-overlay" onClick={onClose}>
@@ -268,7 +268,7 @@ export function SpanEditor({ draft, lanes, onClose, onSaved }: { draft: Draft; l
         <label>notes<textarea rows={3} value={d.notes ?? ""} onChange={(e) => set("notes", e.target.value || null)} /></label>
         <label className="tlx-check"><input type="checkbox" checked={d.published} onChange={(e) => set("published", e.target.checked)} /> publish to company calendar</label>
         <div className="linear-modal-actions">
-          {d.id && <button className="danger" onClick={async () => { await api.deleteRoadmapEntry(d.id!); onSaved(); }}>delete</button>}
+          {d.id && <button className="danger" onClick={async () => { await api.deleteRoadmapEntry(d.id!); onSaved({ ...d, published: false }); }}>delete</button>}
           <button onClick={onClose}>cancel</button>
           <button className="primary" disabled={!d.title.trim()} onClick={() => void save()}>save</button>
         </div>
@@ -368,14 +368,37 @@ export function Timeline({ line, items, settings, selectedDate, selectedRange, o
   const [composing, setComposing] = useState(false);
 
   // one-shot undo for drag moves / resizes — a nudge on a trackpad is easy to miss
-  const [undo, setUndo] = useState<{ label: string; revert: () => Promise<void> } | null>(null);
-  const undoTimer = useRef<number>(0);
-  const offerUndo = (label: string, revert: () => Promise<void>) => {
-    window.clearTimeout(undoTimer.current);
-    setUndo({ label, revert });
-    undoTimer.current = window.setTimeout(() => setUndo(null), 7000);
+  type Toast = { label: string; action?: { text: string; run: () => Promise<void> } };
+  const [toast, setToast] = useState<Toast | null>(null);
+  const toastTimer = useRef<number>(0);
+  const showToast = (t: Toast, ms = 7000) => {
+    window.clearTimeout(toastTimer.current);
+    setToast(t);
+    toastTimer.current = window.setTimeout(() => setToast(null), ms);
   };
-  const runUndo = async () => { const u = undo; setUndo(null); if (u) { await u.revert(); await changed(); } };
+  const offerUndo = (label: string, revert: () => Promise<void>) =>
+    showToast({ label, action: { text: "undo", run: async () => { await revert(); await changed(); } } });
+
+  // company calendar: preview, confirm, then push published spans/milestones
+  const [syncing, setSyncing] = useState(false);
+  const syncPublished = async () => {
+    setSyncing(true);
+    try {
+      const p = await api.publishRoadmap(true);
+      const n = p.created + p.updated + p.deleted;
+      if (n === 0) { showToast({ label: "company calendar is up to date" }, 4000); return; }
+      showToast({
+        label: `calendar: create ${p.created} · update ${p.updated} · delete ${p.deleted}`,
+        action: { text: "publish", run: async () => {
+          const r = await api.publishRoadmap(false);
+          showToast({ label: `published · ${r.created} created · ${r.updated} updated · ${r.deleted} deleted` }, 5000);
+        } },
+      }, 20000);
+    } catch (e) {
+      console.error(e);
+      showToast({ label: "calendar sync failed" }, 5000);
+    } finally { setSyncing(false); }
+  };
 
   const m = useMemo(() => fromApi(line, lanes, entries, items), [line, lanes, entries, items]);
   const mf: Model = useMemo(() => ({
@@ -582,6 +605,9 @@ export function Timeline({ line, items, settings, selectedDate, selectedRange, o
                 <button className={composing ? "active" : ""} onClick={() => setComposing((c) => !c)}>{composing ? "× task" : "+ task"}</button>
                 <button onClick={() => setEditSpan(newDraft("span"))}>+ span</button>
                 <button onClick={() => setEditSpan(newDraft("milestone"))}>+ milestone</button>
+                <button onClick={() => void syncPublished()} disabled={syncing} title="push published spans + milestones to the company calendar (previews first)">
+                  {syncing ? "checking…" : "↑ sync calendar"}
+                </button>
               </div>
             </div>
             {composing && (
@@ -657,15 +683,24 @@ export function Timeline({ line, items, settings, selectedDate, selectedRange, o
         <LanePopover lane={lanePop.lane} at={lanePop} spanCount={lanePop.lane ? entries.filter((e) => e.lane_id === lanePop.lane!.id).length : 0}
           onClose={() => setLanePop(null)} onSaved={async () => { setLanePop(null); await loadRoadmap(); }} />
       )}
-      {undo && (
+      {toast && (
         <div className="tl-toast" role="status">
-          <span>{undo.label}</span>
-          <button onClick={() => void runUndo()}>undo</button>
-          <button className="tlx-x" onClick={() => setUndo(null)} aria-label="dismiss">×</button>
+          <span>{toast.label}</span>
+          {toast.action && <button onClick={() => { const a = toast.action!; setToast(null); void a.run(); }}>{toast.action.text}</button>}
+          <button className="tlx-x" onClick={() => setToast(null)} aria-label="dismiss">×</button>
         </div>
       )}
       {editTask && <TaskDetailModal item={editTask} onChange={() => void changed()} onClose={() => setEditTask(null)} />}
-      {editSpan && <SpanEditor draft={editSpan} lanes={lanes} onClose={() => setEditSpan(null)} onSaved={async () => { setEditSpan(null); await changed(); }} />}
+      {editSpan && (
+        <SpanEditor draft={editSpan} lanes={lanes} onClose={() => setEditSpan(null)}
+          onSaved={async (saved) => {
+            const wasPublished = editSpan.published;
+            setEditSpan(null);
+            await changed();
+            // a published entry changed (or lost its flag): the company calendar is now stale
+            if (saved.published || wasPublished) showToast({ label: "company calendar may be out of date", action: { text: "sync", run: syncPublished } }, 12000);
+          }} />
+      )}
     </div>
   );
 }
