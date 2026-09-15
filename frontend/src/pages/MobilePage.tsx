@@ -123,6 +123,8 @@ export function MobilePage() {
             date={selectedDate}
             view="day"
             weekStartsOn={settings.calendar.week_starts_on}
+            items={items}
+            onTasksChange={load}
           />
         )}
         {screen === "calendar" && (

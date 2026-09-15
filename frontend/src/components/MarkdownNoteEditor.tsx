@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { EditorState } from "@codemirror/state";
+import type { CaughtItem } from "@life-console/shared";
+import { EditorState, StateEffect } from "@codemirror/state";
 import {
   defaultKeymap,
   history,
@@ -27,8 +28,250 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
+import { api } from "../api.js";
+import {
+  NoteTaskDetails,
+  type NoteTaskDisplay,
+} from "./NoteTaskDetails.js";
 
 type FoldRange = { from: number; to: number };
+type TaskTrigger = { from: number; to: number; query: string };
+
+const TASK_TOKEN = /\{\{task:(\d+)(?:\|show=([a-z,]*))?\}\}/g;
+const refreshTaskObjects = StateEffect.define<void>();
+const DISPLAY_KEYS = ["linear", "assignee", "due", "tags"] as const;
+
+function taskDisplay(raw: string | undefined): NoteTaskDisplay {
+  if (raw === undefined) {
+    return { linear: true, assignee: true, due: true, tags: true };
+  }
+  const shown = new Set(raw.split(","));
+  return {
+    linear: shown.has("linear"),
+    assignee: shown.has("assignee"),
+    due: shown.has("due"),
+    tags: shown.has("tags"),
+  };
+}
+
+export function taskToken(id: number, display: NoteTaskDisplay): string {
+  const shown = DISPLAY_KEYS.filter((key) => display[key]);
+  return shown.length === DISPLAY_KEYS.length
+    ? `{{task:${id}}}`
+    : `{{task:${id}|show=${shown.join(",")}}}`;
+}
+
+export function findTaskTrigger(doc: string, cursor: number): TaskTrigger | null {
+  const before = doc.slice(0, cursor);
+  const lineStart = before.lastIndexOf("\n") + 1;
+  const line = before.slice(lineStart);
+  const match = /\[\]([^\n[\]{}]*)$/.exec(line);
+  if (!match) return null;
+  const from = lineStart + match.index;
+  if (from > lineStart && !/\s/.test(doc[from - 1])) return null;
+  return { from, to: cursor, query: match[1].trim() };
+}
+
+export function taskReferences(doc: string): number[] {
+  return [...doc.matchAll(TASK_TOKEN)].map((match) => Number(match[1]));
+}
+
+export function matchingTasks(items: CaughtItem[], query: string): CaughtItem[] {
+  const needle = query.toLowerCase();
+  return items
+    .filter((item) =>
+      [
+        item.text,
+        item.linear_identifier,
+        item.linear_team,
+        item.assignee,
+        ...item.tags,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle)),
+    )
+    .sort(
+      (a, b) =>
+        Number(a.status === "closed") - Number(b.status === "closed") ||
+        a.text.localeCompare(b.text),
+    )
+    .slice(0, 8);
+}
+
+class TaskObjectWidget extends WidgetType {
+  constructor(
+    private readonly item: CaughtItem | undefined,
+    private readonly id: number,
+    private readonly from: number,
+    private readonly display: NoteTaskDisplay,
+    private readonly onOpen: (
+      id: number,
+      from: number,
+      display: NoteTaskDisplay,
+      dom: HTMLElement,
+    ) => void,
+    private readonly onToggle: (item: CaughtItem) => void,
+  ) {
+    super();
+  }
+
+  eq(other: TaskObjectWidget) {
+    return (
+      this.id === other.id &&
+      this.from === other.from &&
+      JSON.stringify(this.display) === JSON.stringify(other.display) &&
+      JSON.stringify(this.item) === JSON.stringify(other.item)
+    );
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+
+  toDOM() {
+    const wrapper = document.createElement("span");
+    wrapper.className = `cm-task-object${this.item?.status === "closed" ? " done" : ""}`;
+    wrapper.contentEditable = "false";
+
+    if (!this.item) {
+      wrapper.classList.add("missing");
+      wrapper.textContent = "missing task";
+      return wrapper;
+    }
+
+    const check = document.createElement("button");
+    check.type = "button";
+    check.className = "cm-task-check";
+    check.title = this.item.status === "closed" ? "reopen task" : "complete task";
+    check.setAttribute("aria-label", check.title);
+    check.addEventListener("mousedown", (event) => event.preventDefault());
+    check.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.onToggle(this.item!);
+    });
+    wrapper.append(check);
+
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "cm-task-title";
+    title.textContent = this.item.text;
+    title.title = "show task details";
+    title.addEventListener("mousedown", (event) => event.preventDefault());
+    title.addEventListener("click", () =>
+      this.onOpen(this.id, this.from, this.display, wrapper),
+    );
+    wrapper.append(title);
+
+    if (this.display.linear && this.item.source === "linear") {
+      const linear = document.createElement("span");
+      linear.className = "cm-task-meta linear";
+      linear.textContent = `L${this.item.linear_identifier ? ` · ${this.item.linear_identifier}` : ""}`;
+      wrapper.append(linear);
+    }
+    if (this.display.assignee && this.item.assignee) {
+      const who = document.createElement("span");
+      who.className = "cm-task-meta";
+      who.textContent = `@${this.item.assignee}`;
+      wrapper.append(who);
+    }
+    if (this.display.due && this.item.due_date) {
+      const due = document.createElement("span");
+      due.className = "cm-task-meta";
+      due.textContent = new Date(`${this.item.due_date}T00:00:00`).toLocaleDateString(
+        "en-US",
+        { month: "short", day: "numeric" },
+      );
+      wrapper.append(due);
+    }
+    if (this.display.tags) {
+      for (const tag of this.item.tags) {
+        const meta = document.createElement("span");
+        meta.className = "cm-task-meta";
+        meta.textContent = `#${tag}`;
+        wrapper.append(meta);
+      }
+    }
+    return wrapper;
+  }
+}
+
+function taskObjectDecorations(
+  view: EditorView,
+  items: { current: CaughtItem[] },
+  onOpen: {
+    current: (
+      id: number,
+      from: number,
+      display: NoteTaskDisplay,
+      dom: HTMLElement,
+    ) => void;
+  },
+  onToggle: { current: (item: CaughtItem) => void },
+): DecorationSet {
+  const ranges = [];
+  const text = view.state.doc.toString();
+  for (const match of text.matchAll(TASK_TOKEN)) {
+    const from = match.index!;
+    const id = Number(match[1]);
+    ranges.push(
+      Decoration.replace({
+        widget: new TaskObjectWidget(
+          items.current.find((item) => item.id === id),
+          id,
+          from,
+          taskDisplay(match[2]),
+          onOpen.current,
+          onToggle.current,
+        ),
+      }).range(from, from + match[0].length),
+    );
+  }
+  return Decoration.set(ranges, true);
+}
+
+function taskObjects(
+  items: { current: CaughtItem[] },
+  onOpen: {
+    current: (
+      id: number,
+      from: number,
+      display: NoteTaskDisplay,
+      dom: HTMLElement,
+    ) => void;
+  },
+  onToggle: { current: (item: CaughtItem) => void },
+) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      atomics: DecorationSet;
+
+      constructor(view: EditorView) {
+        this.decorations = taskObjectDecorations(view, items, onOpen, onToggle);
+        this.atomics = this.decorations;
+      }
+
+      update(update: ViewUpdate) {
+        if (
+          update.docChanged ||
+          update.transactions.some((transaction) =>
+            transaction.effects.some((effect) => effect.is(refreshTaskObjects)),
+          )
+        ) {
+          this.decorations = taskObjectDecorations(update.view, items, onOpen, onToggle);
+          this.atomics = this.decorations;
+        }
+      }
+    },
+    {
+      decorations: (value) => value.decorations,
+      provide: (plugin) =>
+        EditorView.atomicRanges.of(
+          (view) => view.plugin(plugin)?.atomics ?? Decoration.none,
+        ),
+    },
+  );
+}
 
 function listFoldRange(state: EditorState, lineStart: number): FoldRange | null {
   const line = state.doc.lineAt(lineStart);
@@ -120,6 +363,13 @@ class BulletWidget extends WidgetType {
   }
 }
 
+/** Visual width of a bullet's leading whitespace, in space-equivalent
+ *  characters. A `\t` counts as one Tab-key press (TAB.length = 4) so
+ *  tab-indented bullets nest the same as space-indented ones. */
+export function bulletIndentChars(leading: string): number {
+  return leading.replace(/\t/g, "    ").length;
+}
+
 function bulletDecorations(view: EditorView): DecorationSet {
   const ranges = [];
   for (let number = 1; number <= view.state.doc.lines; number++) {
@@ -127,7 +377,22 @@ function bulletDecorations(view: EditorView): DecorationSet {
     const match = /^(\s*)([-*+])\s/.exec(line.text);
     if (!match) continue;
     const foldRange = listFoldRange(view.state, line.from);
-    const from = line.from + match[1].length;
+    // Push nesting into `padding-left` on the line so wrapped continuations
+    // land under the bullet's TEXT (not under the bullet dot itself, and
+    // not further left under a shallower bullet). The extra `+ 2ch` is the
+    // bullet marker + trailing space; the matching negative `text-indent`
+    // pulls the first line back so the bullet stays put visually.
+    const indentCh = bulletIndentChars(match[1]);
+    ranges.push(
+      Decoration.line({
+        attributes: {
+          style: `padding-left:calc(${indentCh / 2}ch + 2ch);text-indent:-2ch`,
+        },
+      }).range(line.from),
+    );
+    // Replace the source-level leading whitespace + dash with just the
+    // bullet widget — otherwise those raw spaces would push the wrapped
+    // line right along with the first line.
     ranges.push(
       Decoration.replace({
         widget: new BulletWidget(
@@ -135,7 +400,7 @@ function bulletDecorations(view: EditorView): DecorationSet {
           foldRange ? foldsWithin(view.state, foldRange).length > 0 : false,
           foldRange !== null,
         ),
-      }).range(from, from + 1),
+      }).range(line.from, line.from + match[1].length + 1),
     );
   }
   return Decoration.set(ranges, true);
@@ -683,18 +948,50 @@ export function removeBulletBackward(view: EditorView): boolean {
 interface Props {
   initialValue: string;
   emptyText: string;
+  items: CaughtItem[];
   onChange: (value: string) => void;
   onSave: () => void;
+  onTasksChange: () => void | Promise<void>;
 }
 
 export function MarkdownNoteEditor({
   initialValue,
   emptyText,
+  items,
   onChange,
   onSave,
+  onTasksChange,
 }: Props) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const itemsRef = useRef(items);
+  const triggerRef = useRef<(TaskTrigger & { top: number; left: number }) | null>(null);
+  const dismissedTriggerRef = useRef("");
+  const changingDisplayRef = useRef(false);
+  const insertReferenceRef = useRef<(id: number) => void>(() => {});
+  const createTaskRef = useRef<(title: string) => void>(() => {});
+  const onOpenTaskRef = useRef<
+    (
+      id: number,
+      from: number,
+      display: NoteTaskDisplay,
+      dom: HTMLElement,
+    ) => void
+  >(() => {});
+  const onToggleTaskRef = useRef<(item: CaughtItem) => void>(() => {});
+  const [taskTrigger, setTaskTrigger] = useState<
+    (TaskTrigger & { top: number; left: number }) | null
+  >(null);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [openTask, setOpenTask] = useState<{
+    id: number;
+    from: number;
+    display: NoteTaskDisplay;
+    top: number;
+    left: number;
+  } | null>(null);
   // Mobile-only: the format bar collapses to a single "Aa" toggle
   // (the toggle button is hidden on desktop, where the full bar shows).
   const [barOpen, setBarOpen] = useState(false);
@@ -704,6 +1001,129 @@ export function MarkdownNoteEditor({
   const onSaveRef = useRef(onSave);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+
+  const refreshTrigger = (view: EditorView) => {
+    const found = findTaskTrigger(
+      view.state.doc.toString(),
+      view.state.selection.main.head,
+    );
+    if (!found || !view.state.selection.main.empty) {
+      triggerRef.current = null;
+      setTaskTrigger(null);
+      setCreatingTask(false);
+      return;
+    }
+    const signature = `${found.from}:${found.to}:${found.query}`;
+    if (signature === dismissedTriggerRef.current) return;
+    const coords = view.coordsAtPos(found.to);
+    const wrapper = wrapperRef.current?.getBoundingClientRect();
+    if (!coords || !wrapper) return;
+    const next = {
+      ...found,
+      top: coords.bottom - wrapper.top + 5,
+      left: Math.max(8, Math.min(coords.left - wrapper.left, wrapper.width - 328)),
+    };
+    triggerRef.current = next;
+    setTaskTrigger(next);
+    setCreatingTask(false);
+  };
+
+  const insertReference = (id: number) => {
+    const view = viewRef.current;
+    const trigger = triggerRef.current;
+    if (!view || !trigger) return;
+    const token = taskToken(id, taskDisplay(undefined));
+    view.dispatch({
+      changes: { from: trigger.from, to: trigger.to, insert: token },
+      selection: { anchor: trigger.from + token.length },
+    });
+    triggerRef.current = null;
+    setTaskTrigger(null);
+    setCreatingTask(false);
+    view.focus();
+  };
+  insertReferenceRef.current = insertReference;
+
+  const createTask = async (title: string) => {
+    const clean = title.trim();
+    if (!clean) return;
+    try {
+      const item = await api.addItem({ text: clean });
+      itemsRef.current = [...itemsRef.current, item];
+      insertReference(item.id);
+      viewRef.current?.dispatch({ effects: refreshTaskObjects.of() });
+      await onTasksChange();
+    } catch (cause) {
+      window.alert(`Could not create task: ${String(cause)}`);
+    }
+  };
+  createTaskRef.current = (title) => void createTask(title);
+
+  onOpenTaskRef.current = (id, from, display, dom) => {
+    const wrapper = wrapperRef.current?.getBoundingClientRect();
+    const object = dom.getBoundingClientRect();
+    if (!wrapper) return;
+    setOpenTask((current) =>
+      current?.id === id && current.from === from
+        ? null
+        : {
+            id,
+            from,
+            display,
+            top: object.bottom - wrapper.top + 5,
+            left: Math.max(8, Math.min(object.left - wrapper.left, wrapper.width - 408)),
+          },
+    );
+    setTaskTrigger(null);
+  };
+
+  const acceptChangedTask = async (next: CaughtItem) => {
+    itemsRef.current = itemsRef.current.map((item) =>
+      item.id === next.id ? next : item,
+    );
+    viewRef.current?.dispatch({ effects: refreshTaskObjects.of() });
+    await onTasksChange();
+  };
+
+  const updateReferenceDisplay = (
+    id: number,
+    from: number,
+    display: NoteTaskDisplay,
+  ) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const rest = view.state.doc.sliceString(from);
+    const current = /^\{\{task:(\d+)(?:\|show=[a-z,]*)?\}\}/.exec(rest);
+    if (!current || Number(current[1]) !== id) return;
+    changingDisplayRef.current = true;
+    view.dispatch({
+      changes: {
+        from,
+        to: from + current[0].length,
+        insert: taskToken(id, display),
+      },
+    });
+    changingDisplayRef.current = false;
+    setOpenTask((open) => (open ? { ...open, display } : open));
+  };
+
+  onToggleTaskRef.current = (item) => {
+    if (
+      item.status !== "closed" &&
+      item.source === "linear" &&
+      !window.confirm(`Complete ${item.linear_identifier ?? "this task"} in Linear?`)
+    ) {
+      return;
+    }
+    void (item.status === "closed" ? api.reopenItem(item.id) : api.closeItem(item.id))
+      .then(acceptChangedTask)
+      .catch((cause) => window.alert(`Could not update task: ${String(cause)}`));
+  };
+
+  useEffect(() => {
+    itemsRef.current = items;
+    viewRef.current?.dispatch({ effects: refreshTaskObjects.of() });
+  }, [items]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -730,6 +1150,7 @@ export function MarkdownNoteEditor({
         listFolding,
         bulletPlugin,
         richTextPlugin,
+        taskObjects(itemsRef, onOpenTaskRef, onToggleTaskRef),
         formattingJanitor,
         indentUnit.of(TAB),
         EditorView.lineWrapping,
@@ -772,7 +1193,29 @@ export function MarkdownNoteEditor({
           },
           {
             key: "Enter",
-            run: insertJournalNewline,
+            run: (view) => {
+              const trigger = triggerRef.current;
+              if (trigger) {
+                const match = matchingTasks(itemsRef.current, trigger.query)[0];
+                if (match) insertReferenceRef.current(match.id);
+                else if (trigger.query) createTaskRef.current(trigger.query);
+                else return false;
+                return true;
+              }
+              return insertJournalNewline(view);
+            },
+          },
+          {
+            key: "Escape",
+            run: () => {
+              const trigger = triggerRef.current;
+              if (!trigger) return false;
+              dismissedTriggerRef.current = `${trigger.from}:${trigger.to}:${trigger.query}`;
+              triggerRef.current = null;
+              setTaskTrigger(null);
+              setCreatingTask(false);
+              return true;
+            },
           },
           {
             key: "Backspace",
@@ -795,7 +1238,9 @@ export function MarkdownNoteEditor({
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             onChangeRef.current(update.state.doc.toString());
+            if (!changingDisplayRef.current) setOpenTask(null);
           }
+          if (update.docChanged || update.selectionSet) refreshTrigger(update.view);
         }),
       ],
     });
@@ -819,9 +1264,15 @@ export function MarkdownNoteEditor({
     changeLineIndent(viewRef.current, outdent);
     viewRef.current.focus();
   };
+  const matches = taskTrigger
+    ? matchingTasks(items, taskTrigger.query)
+    : [];
+  const openedItem = openTask
+    ? itemsRef.current.find((item) => item.id === openTask.id)
+    : undefined;
 
   return (
-    <div className="note-editor">
+    <div className="note-editor" ref={wrapperRef}>
       {/* mousedown preventDefault keeps the editor focused (and the mobile
           keyboard up) while tapping formatting buttons */}
       <div
@@ -897,6 +1348,80 @@ export function MarkdownNoteEditor({
         </button>
       </div>
       <div className="daynotes-input" ref={hostRef} />
+      {taskTrigger && (
+        <div
+          className="note-task-picker"
+          style={{ top: taskTrigger.top, left: taskTrigger.left }}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {creatingTask ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                createTaskRef.current(newTaskTitle);
+              }}
+            >
+              <input
+                autoFocus
+                value={newTaskTitle}
+                placeholder="task title"
+                onChange={(event) => setNewTaskTitle(event.target.value)}
+              />
+              <button type="submit" disabled={!newTaskTitle.trim()}>create</button>
+            </form>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="note-task-new"
+                onClick={() => {
+                  if (taskTrigger.query) createTaskRef.current(taskTrigger.query);
+                  else {
+                    setNewTaskTitle("");
+                    setCreatingTask(true);
+                  }
+                }}
+              >
+                + new{taskTrigger.query ? ` “${taskTrigger.query}”` : " task"}
+              </button>
+              {matches.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className="note-task-result"
+                  onClick={() => insertReferenceRef.current(item.id)}
+                >
+                  <span>{item.status === "closed" ? "✓" : "○"}</span>
+                  <span>{item.text}</span>
+                  <small>
+                    {item.source === "linear"
+                      ? `L · ${item.linear_identifier}`
+                      : item.assignee
+                        ? `@${item.assignee}`
+                        : "local"}
+                  </small>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+      {openTask && openedItem && (
+        <div
+          className="note-task-details-position"
+          style={{ top: openTask.top, left: openTask.left }}
+        >
+          <NoteTaskDetails
+            item={openedItem}
+            display={openTask.display}
+            onChanged={(next) => void acceptChangedTask(next)}
+            onDisplayChange={(display) =>
+              updateReferenceDisplay(openTask.id, openTask.from, display)
+            }
+            onClose={() => setOpenTask(null)}
+          />
+        </div>
+      )}
     </div>
   );
 }
