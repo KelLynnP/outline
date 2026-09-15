@@ -7,6 +7,7 @@ import { EditorState, type TransactionSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { CaughtItem } from "@life-console/shared";
 import {
+  bulletIndentChars,
   changeLineIndent,
   cleanFormatting,
   clearFormatting,
@@ -253,6 +254,15 @@ check(
   matchingTasks(lookupItems, "ROB-42").map((item) => item.id),
   [2],
 );
+
+// --- Bullet indent measurement (wrap alignment) ------------------------------
+
+check("no leading whitespace → 0", bulletIndentChars(""), 0);
+check("four spaces → 4 (one nesting level)", bulletIndentChars("    "), 4);
+check("eight spaces → 8 (two nesting levels)", bulletIndentChars("        "), 8);
+check("one tab → 4 (matches Tab-key indent width)", bulletIndentChars("\t"), 4);
+check("tab + spaces → additive", bulletIndentChars("\t  "), 6);
+check("mixed tabs/spaces stay stable", bulletIndentChars("  \t  "), 8);
 
 // ------------------------------------------------------------------------------
 

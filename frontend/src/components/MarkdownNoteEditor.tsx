@@ -363,6 +363,13 @@ class BulletWidget extends WidgetType {
   }
 }
 
+/** Visual width of a bullet's leading whitespace, in space-equivalent
+ *  characters. A `\t` counts as one Tab-key press (TAB.length = 4) so
+ *  tab-indented bullets nest the same as space-indented ones. */
+export function bulletIndentChars(leading: string): number {
+  return leading.replace(/\t/g, "    ").length;
+}
+
 function bulletDecorations(view: EditorView): DecorationSet {
   const ranges = [];
   for (let number = 1; number <= view.state.doc.lines; number++) {
@@ -370,17 +377,19 @@ function bulletDecorations(view: EditorView): DecorationSet {
     const match = /^(\s*)([-*+])\s/.exec(line.text);
     if (!match) continue;
     const foldRange = listFoldRange(view.state, line.from);
-    // Push nesting into `text-indent` (first-line only) so wrapped
-    // continuation flows flush-left across the full pane width, while the
-    // bullet stays visually indented on line 1.
-    const indentCh = match[1].length;
-    if (indentCh > 0) {
-      ranges.push(
-        Decoration.line({
-          attributes: { style: `text-indent:${indentCh / 2}ch` },
-        }).range(line.from),
-      );
-    }
+    // Push nesting into `padding-left` on the line so wrapped continuations
+    // land under the bullet's TEXT (not under the bullet dot itself, and
+    // not further left under a shallower bullet). The extra `+ 2ch` is the
+    // bullet marker + trailing space; the matching negative `text-indent`
+    // pulls the first line back so the bullet stays put visually.
+    const indentCh = bulletIndentChars(match[1]);
+    ranges.push(
+      Decoration.line({
+        attributes: {
+          style: `padding-left:calc(${indentCh / 2}ch + 2ch);text-indent:-2ch`,
+        },
+      }).range(line.from),
+    );
     // Replace the source-level leading whitespace + dash with just the
     // bullet widget — otherwise those raw spaces would push the wrapped
     // line right along with the first line.
